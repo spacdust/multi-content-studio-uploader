@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 set ACCOUNT=Gus Kikin Official
 set /p USER_ACC="Masukkan Nama Akun target [tekan Enter untuk '%ACCOUNT%']: "
 if not "%USER_ACC%"=="" set ACCOUNT=%USER_ACC%
