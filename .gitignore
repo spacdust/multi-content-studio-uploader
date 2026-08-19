@@ -1,0 +1,108 @@
+# ==========================================
+# MULTI-CONTENT STUDIO UPLOADER - .GITIGNORE
+# ==========================================
+
+# 1. Environment & API Credentials
+.env
+.env.local
+.env.*.local
+*.env
+
+# 2. Account Sessions & Authentication Data (CRITICAL SENSITIVE)
+accounts/*
+!accounts/.gitkeep
+auth/*
+!auth/.gitkeep
+*_state.json
+*upload_history.json
+
+# 3. User Media & Content Files (No videos, photos, or raw user content)
+content/*
+!content/.gitkeep
+queue/*
+!queue/.gitkeep
+posted/*
+!posted/.gitkeep
+failed/*
+!failed/.gitkeep
+temp/*
+!temp/.gitkeep
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.heic
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.flac
+*.ogg
+
+# Keep assets sounds placeholder
+!assets/sounds/.gitkeep
+
+# 4. Logs, Screenshots, & Debug Artifacts
+logs/*
+!logs/.gitkeep
+*.log
+*.png.bak
+
+# 5. Python Artifacts & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+env/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 6. Node & Frontend Web Studio
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 7. Playwright Browser Automation Artifacts
+.playwright/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# 8. OS & IDE Specific
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.gemini/
