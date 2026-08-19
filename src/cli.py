@@ -82,7 +82,7 @@ def main():
     # caption generate
     cap_gen = cap_sub.add_parser("generate", help="Generate caption baru via LLM")
     cap_gen.add_argument("--topic", "-t", required=True, help="Topik atau konteks konten")
-    cap_gen.add_argument("--account", "-a", default="Aqobah International School", help="Nama akun")
+    cap_gen.add_argument("--account", "-a", default="Demo Account", help="Nama akun")
     cap_gen.add_argument("--category", "-c", choices=["Video", "Poster", "Carousel"], default="Video", help="Kategori konten")
 
     # Command: login

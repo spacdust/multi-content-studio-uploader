@@ -68,7 +68,7 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 | **`src/caption_generator.py`** | Ekstraksi keyframe video (OpenCV) & analisis visual via Multimodal LLM, aturan bebas emoji, dan batas tepat maksimal 4 hashtag. |
 | **`src/tiktok_uploader.py`** | Automasi TikTok Studio: Buka browser visual fullscreen, upload video, cari musik resmi di editor sound, klik `+` lagu teratas, set volume `-7 dB`, simpan, isi caption, dan klik tombol merah `Post`. |
 | **`src/instagram_uploader.py`** | Automasi Instagram: Login session handling, upload Reels & Post single/carousel. |
-| **`src/account_manager.py`** | Isolasi multi-akun (misal: *Aqobah International School*, *Gus Kikin Official*, dst) dan manajemen kredensial/session state. |
+| **`src/account_manager.py`** | Isolasi multi-akun (misal: *Brand Creator Official*, *Studio Media Digital*, dst) dan manajemen kredensial/session state. |
 | **`src/audio_processor.py`** | Engine mixing audio offline FFmpeg dengan 5 preset volume (`voiceover`, `balanced`, `music_beat`, dll). |
 | **`src/validator.py`** | Validasi integritas file media (format, resolusi, durasi, batasan ukuran file). |
 | **`src/cli.py`** | Antarmuka CLI terpadu untuk semua aksi (`account`, `content`, `caption`, `login`, `open-studio`, `upload`, `sound`). |
@@ -286,7 +286,7 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 
 ```
 content/
-├── Aqobah International School/           <-- Akun 1
+├── Brand Creator Official/                 <-- Akun 1
 │   ├── Video/
 │   │   └── 2026-08-19/                    <-- Format Tanggal (YYYY-MM-DD)
 │   │       ├── 1.mp4                      <-- Video Asli
@@ -303,7 +303,7 @@ content/
 │               ├── caption.txt
 │               └── meta.json              <-- Metadata & Jadwal
 │
-└── Nama Akun 2/                           <-- Akun 2 (Dst)
+└── Studio Media Digital/                   <-- Akun 2 (Dst)
     ├── Video/
     │   └── 2026-08-19/
     ├── Poster/
@@ -317,12 +317,12 @@ content/
 ## 🔑 Manajemen Akun & Sesi Login Platform In-App
 
 Klik tombol **`👥 Kelola Akun & Login`** atau klik pill status `TT` / `IG` di header:
-1. **Daftar Akun Terdaftar:** Menampilkan semua profil akun (misal: *Aqobah International School*, *Gus Kikin Official*, dll).
+1. **Daftar Akun Terdaftar:** Menampilkan semua profil akun (misal: *Brand Creator Official*, *Studio Media Digital*, dll).
 2. **Status Live Per Platform:**
    - **TikTok:** Menunjukkan status session aktif (`● TERHUBUNG`) atau belum login (`○ BELUM LOGIN`).
-   - **Instagram:** Menunjukkan status session aktif (`● TERHUBUNG`) atau belum login (`○ BELUM LOGIN`).
+   - **Instagram / Meta:** Menunjukkan status session aktif (`● TERHUBUNG`) atau belum login (`○ BELUM LOGIN`).
 3. **Tombol "Hubungkan Platform":**
-   - Klik **`[Hubungkan TikTok]`** atau **`[Hubungkan Instagram]`** untuk otomatis membuka jendela Chromium visual Playwright di layar fisik.
+   - Klik **`[Hubungkan TikTok]`** atau **`[Hubungkan Meta Suite]`** untuk otomatis membuka jendela Chromium visual Playwright di layar fisik.
    - Selesaikan login di jendela yang muncul.
    - Sesi cookie otomatis tersimpan dan status di dashboard langsung berubah menjadi **TERHUBUNG (Hijau)** secara real-time.
 4. **Tombol Shortcut Sesi:** Pada card TikTok tersedia tombol shortcut `[Studio]` untuk membuka browser visual dengan sesi akun tersebut.
@@ -345,7 +345,7 @@ Klik tombol **`👥 Kelola Akun & Login`** atau klik pill status `TT` / `IG` di 
 start_ui.bat
 
 # Buka TikTok Studio langsung dengan sesi akun tertentu
-python -m src.cli open-studio --account "Gus Kikin Official"
+python -m src.cli open-studio --account "Demo Brand"
 
 # Cek tabel konten via CLI
 python -m src.cli content list
@@ -354,7 +354,7 @@ python -m src.cli content list
 python -m src.cli content process
 
 # Test generate caption AI untuk topik tertentu
-python -m src.cli caption generate "lomba pidato bahasa arab" --account "Aqobah International School"
+python -m src.cli caption generate "lomba pidato bahasa arab" --account "Demo Brand"
 
 # Menjalankan unit test
 python -m unittest discover tests

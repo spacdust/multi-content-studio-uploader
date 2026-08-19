@@ -7,13 +7,13 @@ from src.config import AUDIO_PRESETS, slugify_account_name
 class TestContentUploader(unittest.TestCase):
 
     def test_account_slug(self):
-        slug = slugify_account_name("Aqobah International School")
-        self.assertEqual(slug, "aqobah_international_school")
+        slug = slugify_account_name("Demo International Brand")
+        self.assertEqual(slug, "demo_international_brand")
 
     def test_account_creation(self):
-        acc = AccountManager.create_or_get_account("Aqobah International School", "Sekolah Internasional")
-        self.assertEqual(acc["name"], "Aqobah International School")
-        self.assertEqual(acc["slug"], "aqobah_international_school")
+        acc = AccountManager.create_or_get_account("Demo International Brand", "Sekolah Internasional")
+        self.assertEqual(acc["name"], "Demo International Brand")
+        self.assertEqual(acc["slug"], "demo_international_brand")
 
     def test_caption_sanitization(self):
         long_caption = "A" * 3000

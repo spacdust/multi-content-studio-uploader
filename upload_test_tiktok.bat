@@ -1,15 +1,15 @@
 @echo off
 cd /d "%~dp0"
+set ACCOUNT=Demo Account
+set /p USER_ACC="Masukkan Nama Akun target [tekan Enter untuk '%ACCOUNT%']: "
+if not "%USER_ACC%"=="" set ACCOUNT=%USER_ACC%
+
 echo ====================================================================
-echo MEMULAI UPLOAD TIKTOK DENGAN TIKTOK STUDIO SOUND EDITOR
-echo Akun        : Aqobah International School
-echo File        : sample_test.mp4
-echo Sound Query : "school"
-echo Volume      : -7 dB
-echo Browser     : Full Screen Maximized
+echo MEMULAI UPLOAD TIKTOK STUDIO
+echo Akun: %ACCOUNT%
 echo ====================================================================
 
-python -m src.cli upload --account "Aqobah International School" --file "sample_test.mp4" --caption "Testing Upload Aqobah International School #school #education #fyp" --sound-query "school" --sound-db "-7" --platform tiktok
+python -m src.cli content process --account "%ACCOUNT%" --platform tiktok
 
 echo ====================================================================
 pause

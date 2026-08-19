@@ -1,17 +1,15 @@
 @echo off
-set ACCOUNT=Aqobah International School
-set PROFILE_DIR=%~dp0accounts\aqobah_international_school\profile_instagram
+cd /d "%~dp0"
+set ACCOUNT=Demo Account
+set /p USER_ACC="Masukkan Nama Akun target [tekan Enter untuk '%ACCOUNT%']: "
+if not "%USER_ACC%"=="" set ACCOUNT=%USER_ACC%
 
 echo ====================================================================
-echo Membuka Google Chrome untuk Login Instagram: %ACCOUNT%
-echo Folder Sesi: %PROFILE_DIR%
+echo Membuka Browser Login Meta Business Suite / Instagram
+echo Akun: %ACCOUNT%
 echo ====================================================================
 
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --user-data-dir="%PROFILE_DIR%" --no-first-run --no-default-browser-check "https://www.instagram.com/accounts/login/"
+python -m src.cli login --account "%ACCOUNT%" --platform meta
 
-echo.
-echo [OK] Jendela Google Chrome telah dibuka di layar Anda!
-echo 1. Silakan login ke akun Instagram Anda di jendela Chrome tersebut.
-echo 2. Setelah berhasil masuk ke beranda Instagram, Anda boleh menutup jendela ini.
 echo ====================================================================
 pause
