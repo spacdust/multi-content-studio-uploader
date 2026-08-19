@@ -220,12 +220,20 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 - [x] **Title Field Left Blank (Caption-Only):** Kolom judul (*catchy title*) dikosongkan secara default agar fokus hanya menggunakan deskripsi caption yang rapi.
 - [x] **Verified via Live Playwright Testing:** Teruji berhasil memilih sound favorit secara otomatis dan mengaitkannya ke postingan carousel 4 slide dengan bukti screenshot visual.
 
+### 🔹 Fase 27: Instagram Web Direct Uploader (9:16 Original Ratio & Multi-Slide Carousel)
+- [x] **Uncropped 9:16 Original Aspect Ratio:** Mengotomasi klik tombol Crop pada antarmuka Instagram Web (`instagram.com`) dan memilih opsi `Original` (9:16) agar gambar/video vertikal tidak dipotong menjadi 1:1 / 4:5.
+- [x] **Multi-Slide Carousel Ingestion:** Menyuntikkan seluruh slide carousel secara simultan ke modal composer Instagram.
+- [x] **Cross-Posting Facebook Auto-Detection:** Mendeteksi dan mengaktifkan sakelar *'Share to Facebook'* saat tersambung di Pusat Akun Meta.
+- [x] **Alternative Roadmap Documented:** Membuat dan mencatat rencana arsitektur Opsi 2 (`instagrapi` Private API) dan Opsi 3 (Android Emulator Automation) di [`nextplan.md`](file:///c:/Users/spacdust/Desktop/DEV/Bot/content-uploader/nextplan.md).
+
 ---
 
 ## 📊 Tabel Matriks Fitur & Status Terkini
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
+| **Instagram Web Direct Uploader** | ✅ **Stabil** | Upload 9:16 Original tanpa crop + auto-share Facebook |
+| **TikTok Poster & Carousel Upload** | ✅ **Stabil** | Upload multi-slide / single photo + sound via tab Photos |
 | **TikTok Poster & Carousel Upload** | ✅ **Stabil** | Upload multi-slide / single photo + sound via tab Photos |
 | **Direct Photo Sound Selector** | ✅ **Stabil** | Otomasi tombol `+ Add sound` di bawah deskripsi caption |
 | **Real-time Status Polling** | ✅ **Stabil** | Status otomatis terperbarui langsung begitu bot selesai upload |

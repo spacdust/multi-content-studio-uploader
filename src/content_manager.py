@@ -428,10 +428,10 @@ class ContentManager:
 
             if "instagram" in target_platforms:
                 uploader = InstagramUploader(headless=headless)
-                ok, msg, proof = uploader.upload(
-                    video_path=img_path,
+                ok, msg, proof = uploader.upload_media(
+                    media_paths=[img_path],
                     caption=caption,
-                    as_reel=False,
+                    is_reel=False,
                     account_name=account
                 )
                 if ok:
@@ -476,10 +476,10 @@ class ContentManager:
 
             if "instagram" in target_platforms and slides:
                 uploader = InstagramUploader(headless=headless)
-                ok, msg, proof = uploader.upload(
-                    video_path=slides[0],
+                ok, msg, proof = uploader.upload_media(
+                    media_paths=slides,
                     caption=caption,
-                    as_reel=False,
+                    is_reel=False,
                     account_name=account
                 )
                 if ok:
