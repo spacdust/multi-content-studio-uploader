@@ -12,7 +12,8 @@ from src.config import (
     TIKTOK_UPLOAD_URL,
     TIKTOK_ALT_UPLOAD_URL,
     DEFAULT_USER_AGENT,
-    LOGS_DIR
+    LOGS_DIR,
+    launch_browser
 )
 from src.validator import ContentValidator
 
@@ -324,15 +325,7 @@ class TikTokUploader:
         console.print(f"Sound Mode: [cyan]{sound_mode.upper()}[/cyan] (Query: {tiktok_sound_query}, Volume: {sound_volume_db} dB)")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=self.headless,
-                slow_mo=600 if not self.headless else 0,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
@@ -622,15 +615,7 @@ class TikTokUploader:
         console.print(f"Sound Mode: [cyan]{sound_mode.upper()}[/cyan] (Query: {tiktok_sound_query or 'school'})")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=self.headless,
-                slow_mo=600 if not self.headless else 0,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,

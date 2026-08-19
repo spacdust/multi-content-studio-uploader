@@ -109,3 +109,29 @@ AUDIO_PRESETS = {
         "description": "Menaikkan volume suara asli (150%) dan musik tipis (12%)"
     }
 }
+
+def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list = None):
+    """
+    Launches browser prioritizing native installed Google Chrome (channel='chrome')
+    to prevent bot detection and bypass 'Maximum attempts reached' restrictions.
+    """
+    args = [
+        "--start-maximized",
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox"
+    ]
+    if extra_args:
+        args.extend(extra_args)
+    try:
+        return p.chromium.launch(
+            channel="chrome",
+            headless=headless,
+            slow_mo=slow_mo,
+            args=args
+        )
+    except Exception:
+        return p.chromium.launch(
+            headless=headless,
+            slow_mo=slow_mo,
+            args=args
+        )

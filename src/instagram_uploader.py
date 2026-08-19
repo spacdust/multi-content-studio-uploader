@@ -11,7 +11,8 @@ from src.config import (
     get_account_dir,
     INSTAGRAM_BASE_URL,
     DEFAULT_USER_AGENT,
-    LOGS_DIR
+    LOGS_DIR,
+    launch_browser
 )
 from src.validator import ContentValidator
 
@@ -194,11 +195,7 @@ class InstagramUploader:
         console.print(f"[bold cyan]=== MEMULAI UPLOAD INSTAGRAM WEB FALLBACK {category_name.upper()} ===[/bold cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=self.headless,
-                slow_mo=600 if not self.headless else 0,
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled", "--no-sandbox"]
-            )
+            browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,

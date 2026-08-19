@@ -17,7 +17,8 @@ from src.config import (
     META_BUSINESS_HOME_URL,
     META_BUSINESS_COMPOSER_URL,
     DEFAULT_USER_AGENT,
-    VIEWPORT
+    VIEWPORT,
+    launch_browser
 )
 from src.account_manager import AccountManager
 
@@ -116,14 +117,7 @@ class AuthManager:
         console.print(f"State File: [cyan]{state_file}[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -199,14 +193,7 @@ class AuthManager:
         console.print(f"State File: [cyan]{state_file}[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -282,14 +269,7 @@ class AuthManager:
         console.print(f"State File: [cyan]{state_file}[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -359,14 +339,7 @@ class AuthManager:
         console.print("[cyan]Jendela browser sedang dibuka di layar Anda. Silakan login ke Facebook / Halaman Fanspage.[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -431,14 +404,7 @@ class AuthManager:
         console.print("[cyan]Jendela browser sedang dibuka di layar Anda. Silakan login ke TikTok.[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -515,14 +481,7 @@ class AuthManager:
         console.print("[cyan]Jendela browser sedang dibuka di layar Anda. Silakan login ke Instagram.[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
@@ -588,14 +547,7 @@ class AuthManager:
         console.print(f"State File: [cyan]{state_file}[/cyan]")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox"
-                ]
-            )
+            browser = launch_browser(p, headless=False)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True,
