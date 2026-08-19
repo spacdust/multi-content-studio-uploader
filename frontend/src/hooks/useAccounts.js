@@ -4,7 +4,9 @@ import {
   createAccountApi,
   triggerLoginApi,
   openTikTokStudioApi,
-  openMetaBusinessApi,
+  openInstagramApi,
+  openFacebookApi,
+  loginInstagramMobileApi,
 } from '../api/accountApi';
 
 const STORAGE_KEY_LAST_ACCOUNT = 'content_uploader_last_account';
@@ -57,10 +59,10 @@ export function useAccounts(showToast) {
             const targetAcc = data.accounts.find((a) => a.name === loggingInPlatform.account);
             if (targetAcc) {
               const isTTActive = loggingInPlatform.platform === 'tiktok' && targetAcc.tiktok_active;
-              const isMetaActive = loggingInPlatform.platform === 'meta' && targetAcc.meta_active;
+              const isIGActive = loggingInPlatform.platform === 'instagram' && targetAcc.instagram_active;
 
-              if (isTTActive || isMetaActive) {
-                showToast(`Sesi login ${loggingInPlatform.platform.toUpperCase()} untuk '${loggingInPlatform.account}' berhasil terhubung!`);
+              if (isTTActive || isIGActive) {
+                showToast(`Sesi login ${loggingInPlatform.platform === 'tiktok' ? 'TikTok' : 'Instagram'} untuk '${loggingInPlatform.account}' berhasil terhubung!`);
                 setLoggingInPlatform(null);
               }
             }
@@ -99,7 +101,8 @@ export function useAccounts(showToast) {
   };
 
   const handleTriggerLogin = async (accName, platform) => {
-    showToast(`Membuka browser visual untuk login ${platform.toUpperCase()} akun '${accName}'...`);
+    const platformLabel = platform === 'tiktok' ? 'TikTok' : 'Instagram';
+    showToast(`Membuka browser visual untuk login ${platformLabel} akun '${accName}'...`);
     setLoggingInPlatform({ account: accName, platform });
     try {
       const data = await triggerLoginApi(accName, platform);
@@ -107,7 +110,7 @@ export function useAccounts(showToast) {
         showToast(`Jendela browser visual terbuka. Silakan login di browser.`);
       }
     } catch {
-      showToast(`Gagal memulai sesi login ${platform}`, 'error');
+      showToast(`Gagal memulai sesi login ${platformLabel}`, 'error');
       setLoggingInPlatform(null);
     }
   };
@@ -125,16 +128,54 @@ export function useAccounts(showToast) {
     }
   };
 
-  const handleOpenMetaBusinessBrowser = async (accName) => {
+  const handleOpenInstagramBrowser = async (accName) => {
     if (!accName) return;
-    showToast(`Membuka Meta Business Suite akun '${accName}' di browser penuh...`);
+    showToast(`Membuka Instagram Web akun '${accName}' di browser penuh...`);
     try {
-      const data = await openMetaBusinessApi(accName);
+      const data = await openInstagramApi(accName);
       if (data.status === 'started') {
-        showToast(`Browser Meta Business Suite terbuka untuk akun '${accName}'`);
+        showToast(`Browser Instagram terbuka untuk akun '${accName}'`);
       }
     } catch {
-      showToast('Gagal membuka Meta Business Suite', 'error');
+      showToast('Gagal membuka Instagram', 'error');
+    }
+  };
+
+  const handleOpenFacebookBrowser = async (accName) => {
+    if (!accName) return;
+    showToast(`Membuka Facebook Fanspage akun '${accName}' di browser penuh...`);
+    try {
+      const data = await openFacebookApi(accName);
+      if (data.status === 'started') {
+        showToast(`Browser Facebook terbuka untuk akun '${accName}'`);
+      }
+    } catch {
+      showToast('Gagal membuka Facebook', 'error');
+    }
+  };
+
+  const handleLoginInstagramMobile = async (accName, username, password, verificationCode = null) => {
+    if (!accName || !username || !password) {
+      showToast('Username dan Password Instagram wajib diisi', 'error');
+      return { status: 'error', message: 'Username dan Password wajib diisi' };
+    }
+    showToast(`Menghubungkan Instagram Mobile untuk '${accName}'...`);
+    try {
+      const res = await loginInstagramMobileApi(accName, username, password, verificationCode);
+      if (res.status === 'success') {
+        showToast(`✓ Berhasil terhubung ke Instagram Mobile (@${username})!`, 'success');
+        await fetchAccounts();
+        return res;
+      } else if (res.status === '2fa_required') {
+        showToast('Verifikasi 2FA diperlukan. Masukkan kode OTP / Authenticator.', 'warning');
+        return res;
+      } else {
+        showToast(res.message || 'Gagal login Instagram Mobile', 'error');
+        return res;
+      }
+    } catch {
+      showToast('Terjadi kesalahan saat menghubungkan Instagram Mobile', 'error');
+      return { status: 'error', message: 'Gagal menghubungkan Instagram Mobile' };
     }
   };
 
@@ -155,7 +196,9 @@ export function useAccounts(showToast) {
     handleAccountChange,
     handleCreateAccount,
     handleTriggerLogin,
+    handleLoginInstagramMobile,
     handleOpenTikTokStudioBrowser,
-    handleOpenMetaBusinessBrowser,
+    handleOpenInstagramBrowser,
+    handleOpenFacebookBrowser,
   };
 }

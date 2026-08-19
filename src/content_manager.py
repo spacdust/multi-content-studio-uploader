@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from rich.console import Console
@@ -94,11 +96,12 @@ class ContentManager:
         Reads existing caption or automatically generates engaging LLM caption with max 4 hashtags.
         """
         caption = ""
+        default_db = "-7" if category == "Video" else "0"
         meta = {
             "sound_mode": "search",
-            "sound_query": "school",
-            "sound_db": "-7",
-            "platforms": ["tiktok", "instagram"],
+            "sound_query": "",
+            "sound_db": default_db,
+            "platforms": ["tiktok", "instagram", "facebook"],
             "as_draft": False
         }
 
@@ -151,6 +154,67 @@ class ContentManager:
 
 
     @classmethod
+    def get_next_item_name(cls, account: str, category: str, date: str, ext: str = "") -> str:
+        """
+        Computes the standard sequential filename/foldername:
+        e.g. video-2026-08-19-01.mp4, poster-2026-08-19-01.jpeg, carousel-2026-08-19-01
+        Calculates next sequential 2-digit number based on existing items in that category and date.
+        """
+        target_dir = CONTENT_DIR / account / category / date
+        target_dir.mkdir(parents=True, exist_ok=True)
+        cat_lower = category.lower()
+
+        existing_nums = []
+        if category == "Carousel":
+            for p in target_dir.iterdir():
+                if p.is_dir():
+                    m = re.search(rf"{cat_lower}-{re.escape(date)}-(\d+)", p.name, re.I) or re.search(r"(\d+)$", p.name)
+                    if m:
+                        try:
+                            existing_nums.append(int(m.group(1)))
+                        except Exception:
+                            pass
+                    else:
+                        existing_nums.append(1)
+        else:
+            for p in target_dir.iterdir():
+                if p.is_file() and not p.name.endswith(".json") and not p.name.endswith(".txt"):
+                    m = re.search(rf"{cat_lower}-{re.escape(date)}-(\d+)", p.stem, re.I) or re.search(r"(\d+)$", p.stem)
+                    if m:
+                        try:
+                            existing_nums.append(int(m.group(1)))
+                        except Exception:
+                            pass
+                    else:
+                        existing_nums.append(1)
+
+        next_num = (max(existing_nums) + 1) if existing_nums else 1
+        base_name = f"{cat_lower}-{date}-{next_num:02d}"
+        if ext:
+            clean_ext = ext if ext.startswith(".") else f".{ext}"
+            return f"{base_name}{clean_ext}"
+        return base_name
+
+    @classmethod
+    def _extract_item_timestamp(cls, item_path: Path, date_str: str, slides: Optional[List[Path]] = None) -> float:
+        """
+        Extracts high-precision chronological timestamp from filesystem modification timestamp (mtime),
+        ensuring newly uploaded media appears at the very top of the feed.
+        """
+        try:
+            if slides and len(slides) > 0:
+                return max(s.stat().st_mtime for s in slides)
+            if item_path.exists():
+                return item_path.stat().st_mtime
+        except Exception:
+            pass
+
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").timestamp()
+        except Exception:
+            return 0.0
+
+    @classmethod
     def scan_content(cls, account_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Scans content directory across accounts, categories, and dates.
@@ -177,6 +241,8 @@ class ContentManager:
                                 item_key = f"Video/{date_folder.name}/{vid_file.name}"
                                 caption, meta = cls.read_or_generate_caption_and_meta(vid_file, "Video", acc)
                                 uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                item_ts = cls._extract_item_timestamp(vid_file, date_folder.name)
+                                mtime = vid_file.stat().st_mtime if vid_file.exists() else item_ts
                                 
                                 items.append({
                                     "account": acc,
@@ -187,6 +253,8 @@ class ContentManager:
                                     "item_key": item_key,
                                     "caption": caption,
                                     "meta": meta,
+                                    "created_at": item_ts,
+                                    "mtime": mtime,
                                     "uploaded_platforms": uploaded_p,
                                     "status": "UPLOADED" if uploaded_p else "PENDING"
                                 })
@@ -201,6 +269,8 @@ class ContentManager:
                                 item_key = f"Poster/{date_folder.name}/{pic_file.name}"
                                 caption, meta = cls.read_or_generate_caption_and_meta(pic_file, "Poster", acc)
                                 uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                item_ts = cls._extract_item_timestamp(pic_file, date_folder.name)
+                                mtime = pic_file.stat().st_mtime if pic_file.exists() else item_ts
 
                                 items.append({
                                     "account": acc,
@@ -211,6 +281,8 @@ class ContentManager:
                                     "item_key": item_key,
                                     "caption": caption,
                                     "meta": meta,
+                                    "created_at": item_ts,
+                                    "mtime": mtime,
                                     "uploaded_platforms": uploaded_p,
                                     "status": "UPLOADED" if uploaded_p else "PENDING"
                                 })
@@ -230,6 +302,8 @@ class ContentManager:
                                     item_key = f"Carousel/{date_folder.name}/{car_sub.name}"
                                     caption, meta = cls.read_or_generate_caption_and_meta(car_sub, "Carousel", acc)
                                     uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                    item_ts = cls._extract_item_timestamp(car_sub, date_folder.name, slides)
+                                    mtime = min(s.stat().st_mtime for s in slides) if slides else item_ts
 
                                     items.append({
                                         "account": acc,
@@ -241,6 +315,8 @@ class ContentManager:
                                         "item_key": item_key,
                                         "caption": caption,
                                         "meta": meta,
+                                        "created_at": item_ts,
+                                        "mtime": mtime,
                                         "uploaded_platforms": uploaded_p,
                                         "status": "UPLOADED" if uploaded_p else "PENDING"
                                     })
@@ -337,15 +413,15 @@ class ContentManager:
         caption = item["caption"]
         meta = item["meta"]
 
-        # 1. Tentukan platform target: jika "all", deteksi hanya platform yang sesi loginsertifikasinya aktif
+        # 1. Tentukan platform target: jika "all", deteksi platform yang sesi loginsertifikasinya aktif
         if platform_filter == "all":
             target_platforms = []
             if AuthManager.is_authenticated(account, "tiktok"):
                 target_platforms.append("tiktok")
-            if AuthManager.is_authenticated(account, "instagram"):
+            if AuthManager.is_authenticated(account, "instagram") or AuthManager.is_instagram_mobile_authenticated(account):
                 target_platforms.append("instagram")
-            if AuthManager.is_authenticated(account, "meta"):
-                target_platforms.append("meta")
+            if AuthManager.is_authenticated(account, "facebook"):
+                target_platforms.append("facebook")
             if not target_platforms:
                 target_platforms = ["tiktok"]
         else:
@@ -358,7 +434,7 @@ class ContentManager:
 
         success = True
 
-        # 1. KATEGORI VIDEO (TikTok Studio, IG Reels, Meta Suite)
+        # 1. KATEGORI VIDEO (TikTok Studio, IG Reels, Facebook Reels)
         if category == "Video":
             video_path = item["path"]
 
@@ -370,7 +446,7 @@ class ContentManager:
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "search"),
-                    tiktok_sound_query=meta.get("sound_query", "school"),
+                    tiktok_sound_query=meta.get("sound_query", ""),
                     sound_volume_db=meta.get("sound_db", "-7")
                 )
                 if ok:
@@ -391,21 +467,21 @@ class ContentManager:
                 else:
                     success = False
 
-            if "meta" in target_platforms:
-                from src.meta_uploader import MetaBusinessUploader
-                uploader = MetaBusinessUploader(headless=headless)
-                ok, msg, proof = uploader.upload_media(
-                    account_name=account,
-                    media_paths=[video_path],
+            if "facebook" in target_platforms:
+                from src.facebook_uploader import FacebookUploader
+                uploader = FacebookUploader(headless=headless)
+                ok, msg, proof = uploader.upload(
+                    video_path=video_path,
                     caption=caption,
-                    is_reel=True
+                    as_reel=True,
+                    account_name=account
                 )
                 if ok:
-                    cls.mark_as_uploaded(account, item["item_key"], "meta", proof)
+                    cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
 
-        # 2. KATEGORI POSTER (TikTok Studio, Meta Suite, IG Direct)
+        # 2. KATEGORI POSTER (TikTok Studio, IG Direct, Facebook Fanspage)
         elif category == "Poster":
             img_path = item["path"]
 
@@ -418,7 +494,7 @@ class ContentManager:
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "search"),
-                    tiktok_sound_query=meta.get("sound_query", "school"),
+                    tiktok_sound_query=meta.get("sound_query", ""),
                     category_label="Poster"
                 )
                 if ok:
@@ -439,21 +515,21 @@ class ContentManager:
                 else:
                     success = False
 
-            if "meta" in target_platforms:
-                from src.meta_uploader import MetaBusinessUploader
-                uploader = MetaBusinessUploader(headless=headless)
+            if "facebook" in target_platforms:
+                from src.facebook_uploader import FacebookUploader
+                uploader = FacebookUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
-                    account_name=account,
                     media_paths=[img_path],
                     caption=caption,
-                    is_reel=False
+                    is_reel=False,
+                    account_name=account
                 )
                 if ok:
-                    cls.mark_as_uploaded(account, item["item_key"], "meta", proof)
+                    cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
 
-        # 3. KATEGORI CAROUSEL (TikTok Studio, Meta Suite, IG Direct)
+        # 3. KATEGORI CAROUSEL (TikTok Studio, IG Direct, Facebook Fanspage)
         elif category == "Carousel":
             slides = item.get("slides", [])
 
@@ -466,7 +542,7 @@ class ContentManager:
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "search"),
-                    tiktok_sound_query=meta.get("sound_query", "school"),
+                    tiktok_sound_query=meta.get("sound_query", ""),
                     category_label="Carousel"
                 )
                 if ok:
@@ -487,17 +563,17 @@ class ContentManager:
                 else:
                     success = False
 
-            if "meta" in target_platforms and slides:
-                from src.meta_uploader import MetaBusinessUploader
-                uploader = MetaBusinessUploader(headless=headless)
+            if "facebook" in target_platforms and slides:
+                from src.facebook_uploader import FacebookUploader
+                uploader = FacebookUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
-                    account_name=account,
                     media_paths=slides,
                     caption=caption,
-                    is_reel=False
+                    is_reel=False,
+                    account_name=account
                 )
                 if ok:
-                    cls.mark_as_uploaded(account, item["item_key"], "meta", proof)
+                    cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, RefreshCw, LogIn, ExternalLink } from 'lucide-react';
+import { Users, RefreshCw, LogIn, ExternalLink, ShieldCheck } from 'lucide-react';
 
 export default function AccountManagerModal({
   show,
@@ -12,7 +12,8 @@ export default function AccountManagerModal({
   handleAccountChange,
   handleTriggerLogin,
   handleOpenTikTokStudioBrowser,
-  handleOpenMetaBusinessBrowser,
+  handleOpenInstagramBrowser,
+  handleOpenFacebookBrowser,
   fetchAccounts,
   loggingInPlatform,
   showToast,
@@ -21,21 +22,21 @@ export default function AccountManagerModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto animate-fadeIn">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto animate-fadeIn">
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-400" /> Manajemen Akun & Sesi Login
+              <Users className="w-4 h-4 text-emerald-400" /> Manajemen Akun & Sesi Login Platform
             </h3>
             <p className="text-xs text-zinc-400">
-              Pantau status koneksi platform dan buka browser visual untuk menghubungkan akun.
+              Hubungkan akun TikTok Studio, Instagram, dan Halaman Facebook Fanspage untuk publikasi otomatis.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => fetchAccounts()}
               title="Segarkan Status"
-              className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition"
+              className="p-1.5 bg-zinc-800 hover:bg-zinc-750 text-zinc-300 rounded-lg transition"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -51,72 +52,43 @@ export default function AccountManagerModal({
           </div>
         </div>
 
-        {/* Polling Alert if Browser is open */}
-        {loggingInPlatform && (
-          <div className="p-3.5 rounded-xl bg-emerald-950/40 border border-emerald-800/80 text-emerald-300 text-xs flex items-start gap-3">
-            <RefreshCw className="w-4 h-4 animate-spin flex-shrink-0 text-emerald-400 mt-0.5" />
-            <div>
-              <p className="font-semibold text-emerald-200">
-                Jendela browser visual sedang aktif untuk akun '{loggingInPlatform.account}' ({loggingInPlatform.platform.toUpperCase()})
-              </p>
-              <p className="text-[11px] text-emerald-400/80 mt-0.5">
-                Silakan masukkan username/password di browser yang terbuka. Dashboard otomatis mendeteksi ketika login selesai dan memperbarui status menjadi Terhubung.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* List of Registered Accounts */}
-        <div className="flex flex-col gap-3">
+        {/* Daftar Akun */}
+        <div className="flex flex-col gap-4">
           {accounts.map((acc) => {
-            const isSelected = acc.name === selectedAccount;
+            const isSelected = selectedAccount === acc.name;
+            const isCurrentlyLoggingIn = loggingInPlatform?.account === acc.name;
+
             return (
               <div
-                key={acc.name}
-                className={`p-4 rounded-xl border transition flex flex-col gap-3 ${
+                key={acc.slug}
+                className={`p-4 rounded-xl border transition flex flex-col gap-3.5 ${
                   isSelected
-                    ? 'bg-zinc-950 border-zinc-700 ring-1 ring-zinc-700'
-                    : 'bg-zinc-950/60 border-zinc-800'
+                    ? 'bg-zinc-950/80 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                    : 'bg-zinc-950/40 border-zinc-800/80 hover:border-zinc-700'
                 }`}
               >
+                {/* Header Akun */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {acc.avatar_url ? (
-                      <img
-                        src={acc.avatar_url}
-                        alt={acc.name}
-                        className="w-10 h-10 rounded-full object-cover border-2 border-emerald-500/40 shadow-sm"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center font-bold text-sm text-zinc-300">
-                        {acc.name.slice(0, 1).toUpperCase()}
-                      </div>
-                    )}
-
-                    <div className="flex flex-col">
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center font-bold text-xs text-zinc-300 border border-zinc-700 uppercase">
+                      {acc.name.slice(0, 2)}
+                    </div>
+                    <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-zinc-100">{acc.name}</span>
+                        <span className="font-semibold text-sm text-zinc-100">{acc.name}</span>
                         {isSelected && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
                             AKTIF
                           </span>
                         )}
                       </div>
-
-                      {acc.tiktok_profile?.username && (
-                        <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
-                          <span className="text-cyan-400 font-semibold">@{acc.tiktok_profile.username}</span>
-                          {acc.tiktok_profile.followers > 0 && (
-                            <>
-                              <span>•</span>
-                              <span className="text-zinc-300">
-                                {(acc.tiktok_profile.followers / 1000).toFixed(1)}K Pengikut
-                              </span>
-                            </>
-                          )}
+                      {acc.description && (
+                        <p className="text-xs text-zinc-400">{acc.description}</p>
+                      )}
+                      {isCurrentlyLoggingIn && (
+                        <div className="flex items-center gap-1.5 mt-1 text-[11px] text-amber-400 animate-pulse font-medium">
+                          <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                          <span>Browser visual {loggingInPlatform.platform} sedang dibuka. Silakan login...</span>
                         </div>
                       )}
                     </div>
@@ -135,119 +107,168 @@ export default function AccountManagerModal({
                   )}
                 </div>
 
-                {/* Platform Connection Cards Grid (2 Platforms: TikTok Studio & Meta Business Suite) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  {/* 1. TikTok Card */}
-                  <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-xl flex flex-col justify-between gap-3 shadow-xs">
+                {/* 3 Platform Connection Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* 1. TikTok Studio Card */}
+                  <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between gap-2.5 shadow-xs">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         {acc.avatar_url && (
                           <img
                             src={acc.avatar_url}
                             alt="TT"
-                            className="w-5 h-5 rounded-full object-cover border border-cyan-500/40"
+                            className="w-4 h-4 rounded-full object-cover border border-cyan-500/40"
                           />
                         )}
-                        <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                          <span className="text-cyan-400 font-mono text-[11px] font-bold">TT</span> TikTok Studio
+                        <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1">
+                          <span className="text-cyan-400 font-mono text-[11px] font-bold">TT</span> TikTok
                         </span>
                       </div>
 
                       <span
-                        className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                        className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
                           acc.tiktok_active
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                             : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                         }`}
                       >
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
+                          className={`w-1 h-1 rounded-full ${
                             acc.tiktok_active ? 'bg-emerald-400' : 'bg-amber-400'
                           }`}
                         />
-                        {acc.tiktok_active ? 'TERHUBUNG' : 'BELUM LOGIN'}
+                        {acc.tiktok_active ? 'TERHUBUNG' : 'BELUM'}
                       </span>
                     </div>
 
                     <p className="text-[10px] text-zinc-400 truncate">
                       {acc.tiktok_profile?.username
-                        ? `Akun @${acc.tiktok_profile.username} (${acc.tiktok_profile.nickname || 'Kreator'})`
-                        : (acc.tiktok_message || (acc.tiktok_active ? 'Sesi aktif & siap posting otomatis' : 'Belum ada sesi login'))}
+                        ? `@${acc.tiktok_profile.username}`
+                        : (acc.tiktok_active ? 'Sesi aktif' : 'Belum login')}
                     </p>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => handleTriggerLogin(acc.name, 'tiktok')}
-                        className={`flex-1 py-1.5 text-xs font-medium rounded-lg flex items-center justify-center gap-1.5 transition ${
+                        className={`flex-1 py-1.5 text-[11px] font-medium rounded-lg flex items-center justify-center gap-1 transition ${
                           acc.tiktok_active
                             ? 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border border-zinc-700'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold'
                         }`}
                       >
-                        <LogIn className="w-3.5 h-3.5" />
-                        {acc.tiktok_active ? 'Login Ulang' : 'Hubungkan TikTok'}
+                        <LogIn className="w-3 h-3" />
+                        {acc.tiktok_active ? 'Login Ulang' : 'Hubungkan'}
                       </button>
 
                       {acc.tiktok_active && (
                         <button
                           onClick={() => handleOpenTikTokStudioBrowser(acc.name)}
-                          title="Buka TikTok Studio dengan sesi akun ini di browser visual"
-                          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-cyan-400 hover:text-cyan-300 border border-zinc-700 rounded-lg text-xs font-medium flex items-center gap-1 transition"
+                          title="Buka TikTok Studio di browser visual"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-cyan-400 hover:text-cyan-300 border border-zinc-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Studio</span>
+                          <ExternalLink className="w-3 h-3" />
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {/* 2. Meta Business Suite Card (Instagram & Facebook Cross-Posting) */}
-                  <div className="bg-zinc-900 border border-zinc-800 p-3.5 rounded-xl flex flex-col justify-between gap-3 shadow-xs">
+                  {/* 2. Instagram Direct Card */}
+                  <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between gap-2.5 shadow-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                        <span className="text-blue-400 font-mono text-[11px] font-bold">META</span> Meta Suite (IG & FB)
+                      <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1">
+                        <span className="text-pink-400 font-mono text-[11px] font-bold">IG</span> Instagram
                       </span>
                       <span
-                        className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded-full flex items-center gap-1 ${
-                          acc.meta_active
+                        className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
+                          acc.instagram_active
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                             : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                         }`}
                       >
                         <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            acc.meta_active ? 'bg-emerald-400' : 'bg-amber-400'
+                          className={`w-1 h-1 rounded-full ${
+                            acc.instagram_active ? 'bg-emerald-400' : 'bg-amber-400'
                           }`}
                         />
-                        {acc.meta_active ? 'TERHUBUNG' : 'BELUM LOGIN'}
+                        {acc.instagram_active ? 'TERHUBUNG' : 'BELUM'}
                       </span>
                     </div>
 
                     <p className="text-[10px] text-zinc-400 truncate">
-                      {acc.meta_message || (acc.meta_active ? 'Sesi aktif (Cross-Post Reels/Feed IG & Fanspage FB)' : 'Posting paralel IG & FB')}
+                      {acc.instagram_active ? 'Rasio 9:16 Original & Multi' : 'Upload instagram.com'}
                     </p>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => handleTriggerLogin(acc.name, 'meta')}
-                        className={`flex-1 py-1.5 text-xs font-medium rounded-lg flex items-center justify-center gap-1.5 transition ${
-                          acc.meta_active
+                        onClick={() => handleTriggerLogin(acc.name, 'instagram')}
+                        className={`flex-1 py-1.5 text-[11px] font-medium rounded-lg flex items-center justify-center gap-1 transition ${
+                          acc.instagram_active
                             ? 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border border-zinc-700'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-zinc-950 font-bold'
+                            : 'bg-pink-600 hover:bg-pink-500 text-white font-bold'
                         }`}
                       >
-                        <LogIn className="w-3.5 h-3.5" />
-                        {acc.meta_active ? 'Login Ulang' : 'Hubungkan Meta'}
+                        <LogIn className="w-3 h-3" />
+                        {acc.instagram_active ? 'Login Ulang' : 'Hubungkan'}
                       </button>
 
-                      {acc.meta_active && (
+                      {acc.instagram_active && (
                         <button
-                          onClick={() => handleOpenMetaBusinessBrowser(acc.name)}
-                          title="Buka Meta Business Suite dengan sesi akun ini di browser visual"
-                          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-blue-400 hover:text-blue-300 border border-zinc-700 rounded-lg text-xs font-medium flex items-center gap-1 transition"
+                          onClick={() => handleOpenInstagramBrowser(acc.name)}
+                          title="Buka Instagram Web di browser visual"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-pink-400 hover:text-pink-300 border border-zinc-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Suite</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 3. Facebook Fanspage Direct Card */}
+                  <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-xl flex flex-col justify-between gap-2.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-zinc-200 flex items-center gap-1">
+                        <span className="text-blue-400 font-mono text-[11px] font-bold">FB</span> FB Fanspage
+                      </span>
+                      <span
+                        className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
+                          acc.facebook_active
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                        }`}
+                      >
+                        <span
+                          className={`w-1 h-1 rounded-full ${
+                            acc.facebook_active ? 'bg-emerald-400' : 'bg-amber-400'
+                          }`}
+                        />
+                        {acc.facebook_active ? 'TERHUBUNG' : 'BELUM'}
+                      </span>
+                    </div>
+
+                    <p className="text-[10px] text-zinc-400 truncate">
+                      {acc.facebook_active ? 'Siap Upload Reels Fanspage' : 'Login ke FB Fanspage'}
+                    </p>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleTriggerLogin(acc.name, 'facebook')}
+                        className={`flex-1 py-1.5 text-[11px] font-medium rounded-lg flex items-center justify-center gap-1 transition ${
+                          acc.facebook_active
+                            ? 'bg-zinc-800 hover:bg-zinc-750 text-zinc-300 border border-zinc-700'
+                            : 'bg-blue-600 hover:bg-blue-500 text-white font-bold'
+                        }`}
+                      >
+                        <LogIn className="w-3 h-3" />
+                        {acc.facebook_active ? 'Login Ulang' : 'Hubungkan'}
+                      </button>
+
+                      {acc.facebook_active && (
+                        <button
+                          onClick={() => handleOpenFacebookBrowser(acc.name)}
+                          title="Buka Facebook Fanspage di browser visual"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-blue-400 hover:text-blue-300 border border-zinc-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
+                        >
+                          <ExternalLink className="w-3 h-3" />
                         </button>
                       )}
                     </div>

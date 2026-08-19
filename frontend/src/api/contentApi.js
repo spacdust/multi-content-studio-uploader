@@ -16,7 +16,7 @@ export async function saveCaptionApi(payload) {
 }
 
 export async function generateCaptionApi(payload) {
-  const res = await fetch('/api/caption/generate', {
+  const res = await fetch('/api/content/caption/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

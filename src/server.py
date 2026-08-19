@@ -54,9 +54,10 @@ class InitDateRequest(BaseModel):
     date: str
 
 class GenerateCaptionRequest(BaseModel):
-    account: str
-    category: str
-    item_name: str
+    account: Optional[str] = "default"
+    category: Optional[str] = "Video"
+    item_name: Optional[str] = ""
+    topic: Optional[str] = ""
     item_path: Optional[str] = None
     extra_context: Optional[str] = None
 
@@ -67,7 +68,7 @@ class SaveCaptionRequest(BaseModel):
     item_name: str
     caption: str
     sound_mode: Optional[str] = "search"
-    sound_query: Optional[str] = "school"
+    sound_query: Optional[str] = ""
     sound_db: Optional[str] = "-7"
     scheduled_time: Optional[str] = None
 
@@ -94,9 +95,19 @@ class AccountLoginRequest(BaseModel):
     platform: str # "tiktok" | "instagram"
     timeout_seconds: int = 600
 
+class InstagramMobileLoginRequest(BaseModel):
+    account: str
+    username: str
+    password: str
+    verification_code: Optional[str] = None
+
 class OpenStudioRequest(BaseModel):
     account: str
     platform: Optional[str] = "tiktok"
+
+class CreateAccountRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
 
 # Helper to read and write .env
 def read_current_env() -> Dict[str, str]:
@@ -146,12 +157,12 @@ def get_accounts():
         acc_name = acc["name"]
         slug = acc["slug"]
         tt_ok = AuthManager.is_tiktok_authenticated(acc_name)
-        ig_ok = AuthManager.is_instagram_authenticated(acc_name)
-        meta_ok = AuthManager.is_meta_authenticated(acc_name)
+        ig_ok = AuthManager.is_instagram_authenticated(acc_name) or AuthManager.is_instagram_mobile_authenticated(acc_name)
+        fb_ok = AuthManager.is_facebook_authenticated(acc_name)
 
         tt_msg = f"Session TikTok akun '{acc_name}' AKTIF dan siap upload!" if tt_ok else f"Session state belum ada untuk akun '{acc_name}'. Silakan login terlebih dahulu."
         ig_msg = f"Session Instagram akun '{acc_name}' AKTIF dan siap upload!" if ig_ok else f"Session Instagram akun '{acc_name}' belum login / belum ada."
-        meta_msg = f"Session Meta Business Suite akun '{acc_name}' AKTIF (Siap Cross-Post IG & FB)!" if meta_ok else f"Session Meta Business Suite akun '{acc_name}' belum login / belum ada."
+        fb_msg = f"Session Facebook Fanspage akun '{acc_name}' AKTIF!" if fb_ok else f"Session Facebook Fanspage akun '{acc_name}' belum login / belum ada."
         
         # Load TikTok profile (avatar, handle, nickname, followers)
         tt_profile = {}
@@ -171,8 +182,8 @@ def get_accounts():
             "avatar_url": f"/api/accounts/avatar/{slug}?platform=tiktok" if tt_profile.get("has_local_avatar") or tt_profile.get("avatar_url") else None,
             "instagram_active": ig_ok,
             "instagram_message": ig_msg,
-            "meta_active": meta_ok,
-            "meta_message": meta_msg
+            "facebook_active": fb_ok,
+            "facebook_message": fb_msg
         })
     return {"accounts": result}
 
@@ -203,30 +214,32 @@ def get_account_avatar(account_slug: str, platform: str = "tiktok"):
 
     raise HTTPException(status_code=404, detail="Avatar not found")
 
+@app.post("/api/accounts/create")
 @app.post("/api/accounts")
-def create_account(name: str = Form(...), description: str = Form("")):
+def create_account(req: CreateAccountRequest):
     """Create a new account."""
-    data = AccountManager.create_or_get_account(name, description=description)
-    get_account_content_dir(name)
-    return {"status": "success", "account": data}
+    clean_name = req.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Nama akun tidak boleh kosong")
+    data = AccountManager.create_or_get_account(clean_name, description=req.description or "")
+    get_account_content_dir(clean_name)
+    return {"status": "success", "account": data, "message": f"Akun '{clean_name}' berhasil didaftarkan!"}
 
 @app.post("/api/accounts/login")
 def login_account_platform(req: AccountLoginRequest):
-    """Spawns an independent native visual headed browser process for logging into TikTok, Instagram, or Meta Business."""
+    """Spawns an independent native visual headed browser process for logging into TikTok or Instagram."""
     acc_name = req.account
     platform = req.platform.lower()
 
-    if platform not in ["tiktok", "instagram", "meta", "meta_business"]:
-        raise HTTPException(status_code=400, detail="Platform harus 'tiktok', 'instagram', atau 'meta'")
-
-    cli_platform = "meta" if platform in ["meta", "meta_business"] else platform
+    if platform not in ["tiktok", "instagram", "facebook"]:
+        raise HTTPException(status_code=400, detail="Platform harus 'tiktok', 'instagram', atau 'facebook'")
 
     cmd = [
         sys.executable,
         "-m", "src.cli",
         "login",
         "--account", acc_name,
-        "--platform", cli_platform,
+        "--platform", platform,
         "--timeout", str(req.timeout_seconds)
     ]
 
@@ -238,14 +251,31 @@ def login_account_platform(req: AccountLoginRequest):
 
     return {
         "status": "started",
-        "message": f"Jendela browser visual {cli_platform.upper()} sedang dibuka di layar Anda. Silakan login pada browser tersebut."
+        "message": f"Jendela browser visual {platform.upper()} sedang dibuka di layar Anda. Silakan login pada browser tersebut."
     }
+
+@app.post("/api/accounts/login-instagram-mobile")
+def login_instagram_mobile_endpoint(req: InstagramMobileLoginRequest):
+    """Direct Instagram Mobile Login with username & password."""
+    acc_name = req.account
+    ok, msg = AuthManager.login_instagram_mobile(
+        account_name=acc_name,
+        username=req.username,
+        password=req.password,
+        verification_code=req.verification_code
+    )
+    if ok:
+        return {"status": "success", "message": msg}
+    elif "2fa" in msg.lower() or "twofactor" in msg.lower() or "kode" in msg.lower():
+        return {"status": "2fa_required", "message": msg}
+    else:
+        return {"status": "error", "message": msg}
 
 @app.post("/api/accounts/open-tiktok-studio")
 def open_tiktok_studio(req: OpenStudioRequest):
     """Spawns an interactive maximized headed browser directly to TikTok Studio loaded with the specific account's session."""
     acc_name = req.account
-    platform = req.platform or "tiktok"
+    platform = "tiktok"
 
     cmd = [
         sys.executable,
@@ -263,7 +293,7 @@ def open_tiktok_studio(req: OpenStudioRequest):
 
     return {
         "status": "started",
-        "message": f"Membuka TikTok Studio dengan sesi khusus akun '{acc_name}' di jendela browser maximized..."
+        "message": f"Membuka TikTok Studio dengan sesi akun '{acc_name}' di jendela browser maximized..."
     }
 
 @app.post("/api/accounts/open-instagram")
@@ -291,11 +321,11 @@ def open_instagram_studio(req: OpenStudioRequest):
         "message": f"Membuka Instagram dengan sesi akun '{acc_name}' di jendela browser maximized..."
     }
 
-@app.post("/api/accounts/open-meta-business")
-def open_meta_business_endpoint(req: OpenStudioRequest):
-    """Spawns an interactive maximized headed browser directly to Meta Business Suite loaded with the specific account's session."""
+@app.post("/api/accounts/open-facebook")
+def open_facebook_studio(req: OpenStudioRequest):
+    """Spawns an interactive maximized headed browser directly to Facebook loaded with the specific account's session."""
     acc_name = req.account
-    platform = "meta"
+    platform = "facebook"
 
     cmd = [
         sys.executable,
@@ -313,7 +343,7 @@ def open_meta_business_endpoint(req: OpenStudioRequest):
 
     return {
         "status": "started",
-        "message": f"Membuka Meta Business Suite dengan sesi akun '{acc_name}' di jendela browser maximized..."
+        "message": f"Membuka Facebook Fanspage dengan sesi akun '{acc_name}' di jendela browser maximized..."
     }
 
 @app.get("/api/settings")
@@ -387,8 +417,11 @@ def get_content(account: Optional[str] = None):
             "meta": item["meta"],
             "uploaded_platforms": item["uploaded_platforms"],
             "status": item["status"],
+            "created_at": item.get("created_at", 0.0),
+            "mtime": item.get("mtime", 0.0),
             "media_url": first_media_url,
-            "slide_urls": slide_urls
+            "slide_urls": slide_urls,
+            "slides": [s.name for s in item["slides"]] if "slides" in item and item["slides"] else []
         })
     return {"items": serialized}
 
@@ -403,19 +436,40 @@ def init_date_folder(req: InitDateRequest):
     return {"status": "success", "message": f"Folder date {date_str} created for {req.account}"}
 
 @app.post("/api/content/caption/generate")
+@app.post("/api/caption/generate")
 def generate_caption(req: GenerateCaptionRequest):
     """Generates AI caption using Multimodal Gemini Vision (No emojis, max 4 tags)."""
+    name_to_use = req.item_name or req.topic or ""
     media_p = Path(req.item_path) if req.item_path else None
+
+    # Auto-resolve media path if missing
+    if not media_p and req.account and name_to_use:
+        candidate_cat_dir = CONTENT_DIR / req.account / (req.category or "Video")
+        if candidate_cat_dir.exists():
+            for d in candidate_cat_dir.iterdir():
+                if d.is_dir():
+                    candidate_file = d / name_to_use
+                    if candidate_file.exists():
+                        media_p = candidate_file
+                        break
+                    # For Carousel
+                    c_clean = name_to_use.split(" (")[0]
+                    c_folder = d / c_clean
+                    if c_folder.is_dir():
+                        media_p = c_folder
+                        break
+
     caption = CaptionGenerator.generate_caption(
-        item_name=req.item_name,
-        category=req.category,
-        account_name=req.account,
+        item_name=name_to_use,
+        category=req.category or "Video",
+        account_name=req.account or "default",
         media_path=media_p,
         extra_context=req.extra_context
     )
     return {"status": "success", "caption": caption}
 
 @app.post("/api/content/caption/save")
+@app.post("/api/caption/save")
 def save_caption(req: SaveCaptionRequest):
     """Saves custom caption, scheduled time & metadata to file."""
     acc_content = CONTENT_DIR / req.account / req.category / req.date
@@ -447,13 +501,14 @@ def save_caption(req: SaveCaptionRequest):
         except Exception:
             pass
 
+    default_db = "-7" if req.category == "Video" else "0"
     meta_data.update({
         "caption": req.caption,
         "sound_mode": req.sound_mode or "search",
-        "sound_query": req.sound_query or "school",
-        "sound_db": req.sound_db or "-7",
+        "sound_query": req.sound_query if req.sound_query is not None else "",
+        "sound_db": req.sound_db if (req.sound_db is not None and req.sound_db != "") else default_db,
         "scheduled_time": req.scheduled_time,
-        "platforms": ["tiktok", "instagram"],
+        "platforms": ["tiktok", "instagram", "facebook"],
         "as_draft": False
     })
 
@@ -489,7 +544,7 @@ async def upload_content_media(
     target_dir = CONTENT_DIR / account / category / date
 
     if category == "Carousel":
-        c_name = (carousel_name.strip() if carousel_name else None) or "Carousel 1"
+        c_name = carousel_name.strip() if (carousel_name and carousel_name.strip() and not carousel_name.lower().startswith("carousel ") and not carousel_name.lower().startswith("carousel-")) else ContentManager.get_next_item_name(account, "Carousel", date)
         target_folder = target_dir / c_name
         target_folder.mkdir(parents=True, exist_ok=True)
 
@@ -507,7 +562,9 @@ async def upload_content_media(
         meta_data = {
             "caption": "",
             "scheduled_time": scheduled_time if scheduled_time else None,
-            "platforms": ["instagram", "tiktok"],
+            "sound_query": "",
+            "sound_db": "0",
+            "platforms": ["instagram", "tiktok", "facebook"],
             "as_draft": False
         }
         with open(target_folder / "meta.json", "w", encoding="utf-8") as f:
@@ -516,7 +573,8 @@ async def upload_content_media(
         return {
             "status": "success",
             "message": f"Carousel '{c_name}' dengan {len(saved_files)} slide berhasil disimpan!",
-            "slides": saved_files
+            "slides": saved_files,
+            "folder_name": c_name
         }
 
     else: # Video or Poster (Single Upload)
@@ -524,30 +582,31 @@ async def upload_content_media(
             raise HTTPException(status_code=400, detail="Tidak ada file yang diunggah")
 
         file = files[0]
+        ext = Path(file.filename).suffix.lower() or (".mp4" if category == "Video" else ".jpg")
+        saved_filename = ContentManager.get_next_item_name(account, category, date, ext=ext)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / file.filename
+        target_path = target_dir / saved_filename
 
         with open(target_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
-        # Write initial meta with scheduled_time if provided
-        if scheduled_time:
-            meta_path = target_dir / f"{target_path.stem}.json"
-            meta_data = {
-                "caption": "",
-                "scheduled_time": scheduled_time,
-                "sound_query": "school",
-                "sound_db": "-7",
-                "platforms": ["tiktok", "instagram"],
-                "as_draft": False
-            }
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump(meta_data, f, indent=2)
+        default_db = "-7" if category == "Video" else "0"
+        meta_path = target_dir / f"{target_path.stem}.json"
+        meta_data = {
+            "caption": "",
+            "scheduled_time": scheduled_time if scheduled_time else None,
+            "sound_query": "",
+            "sound_db": default_db,
+            "platforms": ["tiktok", "instagram", "facebook"],
+            "as_draft": False
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, indent=2)
 
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": saved_filename,
             "path": str(target_path)
         }
 
@@ -613,7 +672,7 @@ def upload_item(req: UploadItemRequest):
         "--account", req.account,
         "--category", target_item["category"],
         "--date", target_item["date"],
-        "--item", target_item["name"],
+        "--item", target_item["item_key"],
         "--platform", req.platform
     ]
     if req.headless:

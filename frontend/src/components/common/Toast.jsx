@@ -17,7 +17,11 @@ export default function Toast({ toast }) {
       ) : (
         <Check className="w-4 h-4 text-emerald-400" />
       )}
-      <span className="text-xs font-medium tracking-tight">{toast.message}</span>
+      <span className="text-xs font-medium tracking-tight">
+        {typeof toast.message === 'string'
+          ? toast.message
+          : JSON.stringify(toast.message) || 'Notifikasi'}
+      </span>
     </div>
   );
 }

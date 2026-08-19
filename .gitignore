@@ -15,6 +15,14 @@ auth/*
 !auth/.gitkeep
 *_state.json
 *upload_history.json
+*instagrapi_session.json
+*account_info.json
+*profile*.json
+*avatar*.jpg
+*avatar*.png
+*avatar*.webp
+*tiktok_profile.json
+*profile_tiktok*
 
 # 3. User Media & Content Files (No videos, photos, or raw user content)
 content/*

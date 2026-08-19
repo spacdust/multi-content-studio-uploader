@@ -32,11 +32,35 @@ export async function openTikTokStudioApi(account) {
   return await res.json();
 }
 
-export async function openMetaBusinessApi(account) {
-  const res = await fetch('/api/accounts/open-meta-business', {
+export async function openInstagramApi(account) {
+  const res = await fetch('/api/accounts/open-instagram', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ account }),
   });
   return await res.json();
 }
+
+export async function openFacebookApi(account) {
+  const res = await fetch('/api/accounts/open-facebook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account }),
+  });
+  return await res.json();
+}
+
+export async function loginInstagramMobileApi(account, username, password, verification_code = null) {
+  const res = await fetch('/api/accounts/login-instagram-mobile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      account,
+      username,
+      password,
+      verification_code: verification_code || null,
+    }),
+  });
+  return await res.json();
+}
+

@@ -220,34 +220,52 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 - [x] **Title Field Left Blank (Caption-Only):** Kolom judul (*catchy title*) dikosongkan secara default agar fokus hanya menggunakan deskripsi caption yang rapi.
 - [x] **Verified via Live Playwright Testing:** Teruji berhasil memilih sound favorit secara otomatis dan mengaitkannya ke postingan carousel 4 slide dengan bukti screenshot visual.
 
-### 🔹 Fase 27: Instagram Web Direct Uploader (9:16 Original Ratio & Multi-Slide Carousel)
-- [x] **Uncropped 9:16 Original Aspect Ratio:** Mengotomasi klik tombol Crop pada antarmuka Instagram Web (`instagram.com`) dan memilih opsi `Original` (9:16) agar gambar/video vertikal tidak dipotong menjadi 1:1 / 4:5.
-- [x] **Multi-Slide Carousel Ingestion:** Menyuntikkan seluruh slide carousel secara simultan ke modal composer Instagram.
-- [x] **Cross-Posting Facebook Auto-Detection:** Mendeteksi dan mengaktifkan sakelar *'Share to Facebook'* saat tersambung di Pusat Akun Meta.
-- [x] **Alternative Roadmap Documented:** Membuat dan mencatat rencana arsitektur Opsi 2 (`instagrapi` Private API) dan Opsi 3 (Android Emulator Automation) di [`nextplan.md`](file:///c:/Users/spacdust/Desktop/DEV/Bot/content-uploader/nextplan.md).
+### 🔹 Fase 28: Direct Facebook Fanspage Uploader (Reels & Foto/Carousel)
+- [x] **Pemisahan Alur Konten Facebook Presisi:** Video diunggah via ikon merah `Reel`, sedangkan Poster & Carousel diunggah via ikon hijau `Foto/video`.
+- [x] **Alur Caption Foto/Carousel:** Pengetikan narasi caption dilakukan di bagian atas postingan segera setelah media terunggah, lalu dilanjutkan dengan tombol `[ Berikutnya ]` $\rightarrow$ `[ Kirim ]`.
+- [x] **Pencatatan Status Independen:** Status tersimpan terpisah di `upload_history.json` dengan bukti screenshot di folder `logs/`.
+
+### 🔹 Fase 29: Tri-Platform Master 1-Click Sequential Publishing (TikTok ➔ Instagram ➔ Facebook)
+- [x] **Eksekusi 1-Klik Terpadu (Tombol Hijau):** Mengotomasi publikasi ke 3 platform secara berurutan (*sequential*): TikTok Studio $\rightarrow$ Instagram Web $\rightarrow$ Facebook Fanspage.
+- [x] **Live Real-time Multi-Platform Polling:** Pemantauan otomatis frontend diperbaiki agar tetap aktif memantau hingga ketiga platform selesai terposting tanpa berhenti di platform pertama.
+- [x] **Default Audio Volume Spesifik Kategori:** Suara latar belakang disetel default `-7 dB` untuk Video, dan `0 dB` untuk Poster & Carousel. Default query TikTok sound dikosongkan (`""`).
+
+### 🔹 Fase 30: Standarisasi Format Penamaan Berkas Otomatis (Sequential Naming)
+- [x] **Format Baku Otomatis:**
+  * Video: `video-YYYY-MM-DD-01.mp4`, `video-YYYY-MM-DD-02.mp4`, dst.
+  * Poster: `poster-YYYY-MM-DD-01.jpeg`, `poster-YYYY-MM-DD-02.jpeg`, dst.
+  * Carousel: Folder `carousel-YYYY-MM-DD-01`, `carousel-YYYY-MM-DD-02`, dst.
+- [x] **Auto-Increment Nomor Terakhir:** Sistem secara cerdas mendeteksi nomor urut terbesar yang sudah ada pada tanggal dan kategori tersebut, lalu melanjutkan ke nomor berikutnya.
+- [x] **Pembersihan Form Manual:** Form input manual *Judul Carousel* dihilangkan dari modal upload agar proses penambahan antrean 100% instan.
+
+### 🔹 Fase 31: Default Filter Hari Ini, Single Unified Date Selector, & Pembersihan UI
+- [x] **Default Tampilan Hari Ini (`TODAY`):** Setiap kali aplikasi dibuka atau di-*refresh*, feed langsung menampilkan media untuk hari ini.
+- [x] **Single Unified Date Selector:** Menyatukan selector tanggal menjadi satu dropdown terpadu (*Hari Ini*, *Semua Tanggal*, arsip folder, dan opsi interaktif *Pilih Tanggal Lain...*).
+- [x] **Pembersihan Tombol Redundan:** Tombol manual `+ Folder Baru` dihilangkan karena folder sudah dibuat 100% otomatis saat upload.
+- [x] **Auto-Select Topmost Item:** Media teratas di antrean otomatis terpilih dan terbuka di Studio Inspector saat halaman dimuat.
+
+### 🔹 Fase 32: Manajemen Akun, Instant Login Cookie Detection, & Session Cloning
+- [x] **Fix Pendaftaran Akun Baru:** Menyelaraskan endpoint JSON API `/api/accounts/create` sehingga penambahan akun berjalan lancar.
+- [x] **Instant QR Login Detection:** Deteksi sesi login TikTok membaca cookie sesi secara langsung tanpa terhambat oleh URL `qrcode`.
+- [x] **Cloning Sesi Facebook Antar Akun:** Memungkinkan kloning sesi browser antar akun yang berada di bawah profil/akun utama yang sama dengan switch page mandiri.
 
 ---
 
-## 📊 Tabel Matriks Fitur & Status Terkini
+## 📊 Tabel Matriks Fitur & Status Terkini (v1.0)
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
-| **Instagram Web Direct Uploader** | ✅ **Stabil** | Upload 9:16 Original tanpa crop + auto-share Facebook |
-| **TikTok Poster & Carousel Upload** | ✅ **Stabil** | Upload multi-slide / single photo + sound via tab Photos |
-| **TikTok Poster & Carousel Upload** | ✅ **Stabil** | Upload multi-slide / single photo + sound via tab Photos |
-| **Direct Photo Sound Selector** | ✅ **Stabil** | Otomasi tombol `+ Add sound` di bawah deskripsi caption |
-| **Real-time Status Polling** | ✅ **Stabil** | Status otomatis terperbarui langsung begitu bot selesai upload |
-| **Multi-Platform Status Badges** | ✅ **Stabil** | Keterangan jelas: TikTok Saja, Meta Saja, atau Keduanya |
-| **TikTok Random Favorite Sound** | ✅ **Stabil** | Multi-strategy selector tab Favorit + hover & click sound |
-| **CLI Targeted Publishing** | ✅ **Stabil** | Integrasi `content process --item` langsung ke Playwright uploader |
-| **Modular Clean Architecture** | ✅ **Stabil** | Pemisahan modul API, Hooks, Utilities, & UI Components |
-| **Individual Platform Test Buttons** | ✅ **Stabil** | Tombol `Publish TikTok` & `Publish Meta Suite` mandiri |
-| **Unified 2-Platform Model** | ✅ **Stabil** | TikTok Studio + Meta Business Suite (Instagram & Facebook) |
-| **Dynamic Platform Detection** | ✅ **Stabil** | Tombol publish & uploader auto-detect platform yang aktif login |
-| **TikTok Random Favorite Sound** | ✅ **Stabil** | Auto-randomizer sound favorit dari tab Favorites TikTok |
-| **Carousel Slide Navigator** | ✅ **Stabil** | Preview interaktif semua slide carousel di Studio Inspector |
-| **Meta Business Suite (IG+FB)** | ✅ **Stabil** | 1x klik posting paralel ke Feed/Reels IG & Fanspage Facebook |
-| **Account-Specific Instagram** | ✅ **Stabil** | 1-klik buka browser langsung masuk ke sesi Instagram akun |
+| **Tri-Platform Master Publish** | ✅ **Stabil** | 1-klik publikasi berurutan ke TikTok, Instagram, dan Facebook |
+| **Facebook Fanspage Uploader** | ✅ **Stabil** | Upload Reel (ikon merah) & Foto/Carousel (ikon hijau + caption atas) |
+| **Instagram Web Direct Uploader** | ✅ **Stabil** | Upload 9:16 Original tanpa crop + multi-slide carousel |
+| **TikTok Studio Uploader** | ✅ **Stabil** | Upload Video, Poster & Carousel + Sound volume tuning (-7dB / 0dB) |
+| **Standar Auto-Naming Baku** | ✅ **Stabil** | Format `video-tgl-01`, `poster-tgl-01`, `carousel-tgl-01` otomatis |
+| **Unified Date Filter (Hari Ini)** | ✅ **Stabil** | Dropdown tunggal dengan default Hari Ini + selector kustom |
+| **Real-time Status Polling** | ✅ **Stabil** | Status otomatis terperbarui langsung hingga seluruh platform selesai |
+| **Multi-Platform Status Badges** | ✅ **Stabil** | Indikator `TT`, `IG`, `FB`, dan `Semua Platform (TT · IG · FB)` |
+| **AI Multimodal Caption Generator** | ✅ **Stabil** | Integrasi Gemini/Groq/OpenAI dengan batas ketat 4 hashtag |
+| **Interactive Carousel Viewer** | ✅ **Stabil** | Pratinjau & geser slide di Inspector + reorder slide di modal |
+| **Multi-Account & Session Cloning** | ✅ **Stabil** | Isolasi sesi per akun + kloning sesi Facebook lintas fanspage |
 | **Persistent Active Account** | ✅ **Stabil** | Otomatis mengingat akun terakhir saat app dibuka kembali |
 | **Minimalist Pro Navbar** | ✅ **Stabil** | Navbar bersih dengan switcher akun terintegrasi & settings |
 | **Contextual Feed Header** | ✅ **Stabil** | Tombol `[+ Tambah Media]` tepat di atas antrean konten |

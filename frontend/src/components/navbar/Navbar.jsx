@@ -12,7 +12,8 @@ export default function Navbar({
   handleAccountChange,
   setShowAccountManagerModal,
   handleOpenTikTokStudioBrowser,
-  handleOpenMetaBusinessBrowser,
+  handleOpenInstagramBrowser,
+  handleOpenFacebookBrowser,
   setShowSettingsModal,
   setTestResult,
   showToast,
@@ -50,7 +51,8 @@ export default function Navbar({
             handleAccountChange={handleAccountChange}
             setShowAccountManagerModal={setShowAccountManagerModal}
             handleOpenTikTokStudioBrowser={handleOpenTikTokStudioBrowser}
-            handleOpenMetaBusinessBrowser={handleOpenMetaBusinessBrowser}
+            handleOpenInstagramBrowser={handleOpenInstagramBrowser}
+            handleOpenFacebookBrowser={handleOpenFacebookBrowser}
             showToast={showToast}
           />
 

@@ -48,7 +48,9 @@ def get_account_state_file(account_name: str, platform: str) -> Path:
         return acc_dir / "tiktok_state.json"
     elif plat == "instagram":
         return acc_dir / "instagram_state.json"
-    elif plat in ["meta", "meta_business", "facebook"]:
+    elif plat == "facebook":
+        return acc_dir / "facebook_state.json"
+    elif plat in ["meta", "meta_business"]:
         return acc_dir / "meta_state.json"
     raise ValueError(f"Unknown platform: {platform}")
 

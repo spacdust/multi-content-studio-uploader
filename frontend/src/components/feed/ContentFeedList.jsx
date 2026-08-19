@@ -7,6 +7,8 @@ export default function ContentFeedList({
   selectedItemKey,
   onSelectItem,
   onDeleteClick,
+  filterDate,
+  setFilterDate,
 }) {
   if (loadingContent) {
     return (
@@ -19,11 +21,26 @@ export default function ContentFeedList({
 
   if (items.length === 0) {
     return (
-      <div className="py-20 text-center flex flex-col items-center justify-center gap-2 border border-dashed border-zinc-800/80 rounded-2xl bg-zinc-950/40">
-        <p className="text-zinc-400 text-xs font-medium">Tidak ada konten di antrean.</p>
-        <p className="text-zinc-600 text-[11px]">
+      <div className="py-16 text-center flex flex-col items-center justify-center gap-2.5 border border-dashed border-zinc-800/80 rounded-2xl bg-zinc-950/40 px-4">
+        <p className="text-zinc-300 text-xs font-medium">
+          {filterDate === 'TODAY'
+            ? 'Belum ada media untuk hari ini.'
+            : filterDate !== 'All'
+            ? `Tidak ada media untuk tanggal ${filterDate}.`
+            : 'Tidak ada konten di antrean.'}
+        </p>
+        <p className="text-zinc-500 text-[11px]">
           Klik tombol <strong>+ Tambah Media</strong> untuk menambahkan video, poster, atau carousel.
         </p>
+        {filterDate !== 'All' && (
+          <button
+            type="button"
+            onClick={() => setFilterDate && setFilterDate('All')}
+            className="mt-1 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-200 hover:text-white rounded-lg text-xs transition font-medium shadow-xs"
+          >
+            🌐 Tampilkan Semua Tanggal
+          </button>
+        )}
       </div>
     );
   }

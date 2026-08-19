@@ -72,7 +72,7 @@ def main():
     proc_cont.add_argument("--category", "-c", default=None, help="Filter kategori konten (Video, Poster, Carousel)")
     proc_cont.add_argument("--date", "-d", default=None, help="Filter tanggal konten (YYYY-MM-DD)")
     proc_cont.add_argument("--item", "-i", default=None, help="Nama atau key item spesifik yang akan dipublish")
-    proc_cont.add_argument("--platform", "-p", choices=["tiktok", "instagram", "meta", "all"], default="all", help="Target platform upload")
+    proc_cont.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "meta", "all"], default="all", help="Target platform upload")
     proc_cont.add_argument("--headless", action="store_true", help="Jalankan di background tanpa menampilkan browser")
 
     # Command: caption
@@ -88,18 +88,18 @@ def main():
     # Command: login
     login_parser = subparsers.add_parser("login", help="Buka browser visual untuk login akun spesifik")
     login_parser.add_argument("--account", "-a", default="default", help="Nama akun target (default: 'default')")
-    login_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "meta", "all"], default="all", help="Platform tujuan login")
+    login_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "instagram-mobile", "facebook", "meta", "all"], default="all", help="Platform tujuan login")
     login_parser.add_argument("--timeout", "-t", type=int, default=600, help="Batas waktu login dalam detik (default: 600)")
 
     # Command: open-studio
-    studio_parser = subparsers.add_parser("open-studio", help="Buka TikTok Studio, Instagram, atau Meta Business di browser visual")
+    studio_parser = subparsers.add_parser("open-studio", help="Buka TikTok Studio, Instagram, atau Facebook di browser visual")
     studio_parser.add_argument("--account", "-a", default="default", help="Nama akun target")
-    studio_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "meta"], default="tiktok", help="Platform")
+    studio_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "meta"], default="tiktok", help="Platform")
 
     # Command: check-auth
     auth_parser = subparsers.add_parser("check-auth", help="Periksa status sesi login akun")
     auth_parser.add_argument("--account", "-a", default="default", help="Nama akun target (default: 'default')")
-    auth_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "meta", "all"], default="all", help="Platform yang diperiksa")
+    auth_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "meta", "all"], default="all", help="Platform yang diperiksa")
 
     # Command: sound
     sound_parser = subparsers.add_parser("sound", help="Kelola dan lihat daftar sound / audio presets")
@@ -112,7 +112,7 @@ def main():
     upload_parser.add_argument("--type", choices=["video", "poster", "carousel"], default="video", help="Kategori konten (video, poster, carousel)")
     upload_parser.add_argument("--file", "-f", "--video", "-v", dest="file", required=True, help="Path ke file video atau gambar")
     upload_parser.add_argument("--caption", "-c", default="", help="Teks caption dan hashtag")
-    upload_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "meta", "all"], default="all", help="Target platform")
+    upload_parser.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "meta", "all"], default="all", help="Target platform")
     upload_parser.add_argument("--draft", action="store_true", help="Simpan sebagai draft")
     upload_parser.add_argument("--headless", action="store_true", help="Jalankan di background tanpa memunculkan browser")
     upload_parser.add_argument("--sound-query", "--tiktok-sound", "-sq", default=None, help="Pencarian Sound resmi TikTok di dalam editor")
@@ -153,6 +153,8 @@ def handle_open_studio(args):
         AuthManager.open_tiktok_studio(account_name=account_name)
     elif args.platform == "instagram":
         AuthManager.open_instagram(account_name=account_name)
+    elif args.platform == "facebook":
+        AuthManager.open_facebook(account_name=account_name)
     elif args.platform == "meta":
         AuthManager.open_meta_business(account_name=account_name)
 
@@ -185,7 +187,15 @@ def handle_content(args):
         item_target = getattr(args, "item", None)
         if item_target:
             all_items = ContentManager.scan_content(args.account)
-            target = next((i for i in all_items if i["name"] == item_target or i["item_key"] == item_target), None)
+            clean_target = item_target.split(" (")[0].strip()
+            target = next((
+                i for i in all_items
+                if i["name"] == item_target
+                or i["item_key"] == item_target
+                or i["name"].startswith(clean_target)
+                or clean_target in i["item_key"]
+                or clean_target in i["name"]
+            ), None)
             if target:
                 console.print(f"[bold green]Memproses publish konten spesifik:[/] [cyan]{target['name']}[/]")
                 ContentManager.process_content_item(
@@ -229,6 +239,10 @@ def handle_login(args):
             AuthManager.login_tiktok(account_name=account_name, timeout_seconds=args.timeout)
         elif p == "instagram":
             AuthManager.login_instagram(account_name=account_name, timeout_seconds=args.timeout)
+        elif p in ["instagram-mobile", "mobile"]:
+            AuthManager.login_instagram_mobile(account_name=account_name)
+        elif p == "facebook":
+            AuthManager.login_facebook(account_name=account_name, timeout_seconds=args.timeout)
         elif p == "meta":
             AuthManager.login_meta(account_name=account_name, timeout_seconds=args.timeout)
 

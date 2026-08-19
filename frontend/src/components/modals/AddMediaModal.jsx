@@ -100,7 +100,7 @@ export default function AddMediaModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto animate-fadeIn custom-scrollbar">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto animate-fadeIn custom-scrollbar">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
           <div>
@@ -190,20 +190,6 @@ export default function AddMediaModal({
             />
           </div>
 
-          {/* Carousel Name (If Carousel) */}
-          {activeTab === 'Carousel' && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-300 font-medium">Nama Judul Carousel:</label>
-              <input
-                type="text"
-                required
-                placeholder="Misal: Carousel 1 / Tips Sukses Berbisnis"
-                value={carouselNameInput}
-                onChange={(e) => setCarouselNameInput(e.target.value)}
-                className="bg-zinc-950 border border-zinc-800 px-3 py-2 rounded-xl text-xs text-zinc-100 outline-none focus:border-zinc-600 font-medium"
-              />
-            </div>
-          )}
 
           {/* Section: File Picker & Interactive Slide Ordering */}
           {activeTab !== 'Carousel' ? (
@@ -301,70 +287,79 @@ export default function AddMediaModal({
                 />
               </div>
 
-              {/* Interactive Carousel Slide Reordering List */}
+              {/* Interactive Carousel Slide Reordering List with Large Thumbnails */}
               {carouselSlides.length > 0 ? (
-                <div className="flex flex-col gap-2 max-h-72 overflow-y-auto p-2 bg-zinc-950 rounded-xl border border-zinc-800/90 custom-scrollbar">
+                <div className="flex flex-col gap-2.5 max-h-[420px] overflow-y-auto p-2 bg-zinc-950/80 rounded-xl border border-zinc-800/90 custom-scrollbar">
                   {carouselSlides.map((slide, idx) => (
                     <div
                       key={slide.id || idx}
-                      className="p-2 bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800 rounded-xl flex items-center justify-between gap-3 transition"
+                      className="p-3 bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800 rounded-xl flex items-center justify-between gap-4 transition shadow-sm"
                     >
-                      {/* Left: Slide Number + Thumbnail + Name */}
-                      <div className="flex items-center gap-3 min-w-0">
-                        {/* Slide Order Badge */}
-                        <div className="w-6 h-6 rounded-lg bg-purple-950/80 border border-purple-800/60 flex items-center justify-center text-xs font-mono font-bold text-purple-300 flex-shrink-0">
-                          {idx + 1}
-                        </div>
-
-                        {/* Thumbnail */}
-                        <div className="w-12 h-12 rounded-lg bg-black border border-zinc-700 overflow-hidden flex items-center justify-center flex-shrink-0">
+                      {/* Left: Big Thumbnail + Slide Number Badge + Details */}
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                        {/* Slide Thumbnail Preview (Large & Clear) */}
+                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl bg-black border border-zinc-700/80 overflow-hidden flex items-center justify-center relative flex-shrink-0 shadow-md">
                           <img
                             src={slide.previewUrl}
                             alt={`Slide ${idx + 1}`}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-contain bg-zinc-950"
                           />
+                          {/* Slide Number Badge */}
+                          <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-purple-600/90 backdrop-blur-xs text-white font-mono font-extrabold text-[11px] shadow-sm">
+                            #{idx + 1}
+                          </div>
                         </div>
 
                         {/* File Details */}
-                        <div className="flex flex-col min-w-0">
+                        <div className="flex flex-col gap-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-950/80 border border-purple-800/60 text-purple-300">
+                              Urutan ke-{idx + 1}
+                            </span>
+                            <span className="text-[11px] font-mono text-zinc-400">
+                              {slide.size ? `${slide.size} MB` : 'Gambar'}
+                            </span>
+                          </div>
                           <span className="text-xs font-semibold text-zinc-100 truncate">
-                            Slide {idx + 1}: {slide.name}
+                            {slide.name}
                           </span>
-                          <span className="text-[10px] font-mono text-zinc-400">
-                            {slide.size ? `${slide.size} MB` : 'Gambar'}
+                          <span className="text-[11px] text-zinc-400">
+                            Gunakan tombol panah di kanan untuk memindahkan urutan slide cerita.
                           </span>
                         </div>
                       </div>
 
                       {/* Right: Reordering Actions (Up, Down, Delete) */}
-                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           type="button"
                           disabled={idx === 0}
                           onClick={() => moveSlide(idx, -1)}
-                          title="Geser ke Atas / Lebih Awal"
-                          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                          title="Geser ke Atas / Urutan Lebih Awal"
+                          className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 disabled:opacity-25 disabled:cursor-not-allowed transition flex items-center gap-1 text-xs font-medium"
                         >
-                          <ArrowUp className="w-3.5 h-3.5" />
+                          <ArrowUp className="w-4 h-4 text-purple-400" />
+                          <span className="hidden sm:inline">Naik</span>
                         </button>
 
                         <button
                           type="button"
                           disabled={idx === carouselSlides.length - 1}
                           onClick={() => moveSlide(idx, 1)}
-                          title="Geser ke Bawah / Berikutnya"
-                          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                          title="Geser ke Bawah / Urutan Berikutnya"
+                          className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 disabled:opacity-25 disabled:cursor-not-allowed transition flex items-center gap-1 text-xs font-medium"
                         >
-                          <ArrowDown className="w-3.5 h-3.5" />
+                          <ArrowDown className="w-4 h-4 text-purple-400" />
+                          <span className="hidden sm:inline">Turun</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => removeSlide(idx)}
                           title="Hapus Slide Ini"
-                          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-red-950/50 hover:text-red-400 text-zinc-400 transition ml-1"
+                          className="p-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-800/50 transition ml-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>

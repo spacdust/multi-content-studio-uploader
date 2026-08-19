@@ -17,7 +17,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
 
   // Filters & Sorting
   const [filterCategory, setFilterCategory] = useState('All');
-  const [filterDate, setFilterDate] = useState('All');
+  const [filterDate, setFilterDate] = useState('TODAY');
   const [filterStatus, setFilterStatus] = useState('All');
   const [sortBy, setSortBy] = useState('date-desc');
 
@@ -55,22 +55,14 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       const fetchedItems = data.items || [];
       setItems(fetchedItems);
 
-      if (fetchedItems.length > 0) {
-        setSelectedItemKey((prev) => {
-          const stillExists = fetchedItems.some((i) => i.item_key === prev);
-          return stillExists ? prev : fetchedItems[0].item_key;
-        });
-      } else {
-        setSelectedItemKey(null);
-      }
-
       const initialEdits = {};
       fetchedItems.forEach((item) => {
+        const defaultDb = item.category === 'Video' ? '-7' : '0';
         initialEdits[item.item_key] = {
           caption: item.caption,
           soundMode: item.meta?.sound_mode || 'search',
-          soundQuery: item.meta?.sound_query || 'school',
-          soundDb: item.meta?.sound_db || '-7',
+          soundQuery: item.meta?.sound_query ?? '',
+          soundDb: item.meta?.sound_db !== undefined && item.meta?.sound_db !== null && item.meta?.sound_db !== '' ? item.meta.sound_db : defaultDb,
           scheduledTime: item.meta?.scheduled_time || '',
         };
       });
@@ -89,6 +81,17 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     }
   }, [selectedAccount, fetchContent]);
 
+  // Auto-refresh when user focuses back on the tab
+  useEffect(() => {
+    const handleFocus = () => {
+      if (selectedAccount) {
+        fetchContent(selectedAccount);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [selectedAccount, fetchContent]);
+
   // Derived filtered and sorted items
   const availableDates = Array.from(new Set(items.map((i) => i.date))).sort();
 
@@ -98,21 +101,37 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       if (filterStatus !== 'All') {
         const uploaded = item.uploaded_platforms || [];
         const hasTiktok = uploaded.includes('tiktok');
-        const hasMeta = uploaded.includes('meta') || uploaded.includes('instagram');
+        const hasInstagram = uploaded.includes('instagram') || uploaded.includes('meta');
+        const hasFacebook = uploaded.includes('facebook');
         if (filterStatus === 'PENDING' && uploaded.length > 0) return false;
         if (filterStatus === 'UPLOADED' && uploaded.length === 0) return false;
-        if (filterStatus === 'TIKTOK_ONLY' && (!hasTiktok || hasMeta)) return false;
-        if (filterStatus === 'META_ONLY' && (!hasMeta || hasTiktok)) return false;
-        if (filterStatus === 'ALL_PLATFORMS' && (!hasTiktok || !hasMeta)) return false;
+        if (filterStatus === 'TIKTOK_ONLY' && (!hasTiktok || hasInstagram || hasFacebook)) return false;
+        if (filterStatus === 'INSTAGRAM_ONLY' && (!hasInstagram || hasTiktok || hasFacebook)) return false;
+        if (filterStatus === 'FACEBOOK_ONLY' && (!hasFacebook || hasTiktok || hasInstagram)) return false;
+        if (filterStatus === 'ALL_PLATFORMS' && (!hasTiktok || !hasInstagram || !hasFacebook)) return false;
       }
-      if (filterDate !== 'All' && item.date !== filterDate) return false;
+      if (filterDate === 'TODAY') {
+        const todayStr = getLocalTodayDate();
+        if (item.date !== todayStr) return false;
+      } else if (filterDate !== 'All') {
+        if (item.date !== filterDate) return false;
+      }
       return true;
     })
     .sort((a, b) => {
+      const timeA = a.created_at || a.mtime || 0;
+      const timeB = b.created_at || b.mtime || 0;
+
       if (sortBy === 'date-desc') {
+        if (timeA && timeB && timeA !== timeB) {
+          return timeB - timeA;
+        }
         return b.date.localeCompare(a.date) || b.name.localeCompare(a.name);
       }
       if (sortBy === 'date-asc') {
+        if (timeA && timeB && timeA !== timeB) {
+          return timeA - timeB;
+        }
         return a.date.localeCompare(b.date) || a.name.localeCompare(b.name);
       }
       if (sortBy === 'name-asc') {
@@ -124,17 +143,33 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       if (sortBy === 'status-pending') {
         if (a.status === 'PENDING' && b.status !== 'PENDING') return -1;
         if (a.status !== 'PENDING' && b.status === 'PENDING') return 1;
+        if (timeA && timeB && timeA !== timeB) return timeB - timeA;
         return b.date.localeCompare(a.date);
       }
       return 0;
     });
 
-  const selectedItem = items.find((i) => i.item_key === selectedItemKey) || sortedItems[0] || null;
+  // Auto-select topmost item when items load, account changes, or filtered list updates
+  useEffect(() => {
+    if (sortedItems.length > 0) {
+      if (!selectedItemKey || !sortedItems.some((i) => i.item_key === selectedItemKey)) {
+        setSelectedItemKey(sortedItems[0].item_key);
+      }
+    } else {
+      setSelectedItemKey(null);
+    }
+  }, [sortedItems, selectedItemKey]);
+
+  useEffect(() => {
+    setSelectedItemKey(null);
+  }, [selectedAccount]);
+
+  const selectedItem = (selectedItemKey && sortedItems.find((i) => i.item_key === selectedItemKey)) || sortedItems[0] || null;
   const currentEdit = selectedItem ? (editedItems[selectedItem.item_key] || {
     caption: selectedItem.caption,
     soundMode: selectedItem.meta?.sound_mode || 'search',
-    soundQuery: selectedItem.meta?.sound_query || 'school',
-    soundDb: selectedItem.meta?.sound_db || '-7',
+    soundQuery: selectedItem.meta?.sound_query ?? '',
+    soundDb: selectedItem.meta?.sound_db !== undefined && selectedItem.meta?.sound_db !== null && selectedItem.meta?.sound_db !== '' ? selectedItem.meta.sound_db : (selectedItem.category === 'Video' ? '-7' : '0'),
     scheduledTime: selectedItem.meta?.scheduled_time || '',
   }) : null;
 
@@ -144,7 +179,8 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   // Active platforms computation
   const activePlatforms = [];
   if (currentAccData.tiktok_active) activePlatforms.push('TikTok');
-  if (currentAccData.meta_active) activePlatforms.push('Meta Suite');
+  if (currentAccData.instagram_active) activePlatforms.push('Instagram');
+  if (currentAccData.facebook_active) activePlatforms.push('Facebook');
 
   let publishBtnText = 'Publish Konten';
   const isPublishDisabled = activePlatforms.length === 0;
@@ -154,13 +190,14 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   } else if (activePlatforms.length === 1) {
     publishBtnText = `Publish to ${activePlatforms[0]}`;
   } else {
-    publishBtnText = `Publish to TikTok & Meta Suite`;
+    publishBtnText = `Publish to ${activePlatforms.join(' & ')}`;
   }
 
   // Action: Save Caption & Metadata
   const handleSaveCaption = async (item) => {
     if (!item) return;
     const edit = editedItems[item.item_key] || {};
+    const itemDefaultDb = item.category === 'Video' ? '-7' : '0';
     try {
       const data = await saveCaptionApi({
         account: item.account,
@@ -169,8 +206,8 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         item_name: item.name,
         caption: edit.caption || item.caption,
         sound_mode: edit.soundMode || item.meta?.sound_mode || 'search',
-        sound_query: edit.soundQuery || 'school',
-        sound_db: edit.soundDb || '-7',
+        sound_query: edit.soundQuery !== undefined ? edit.soundQuery : (item.meta?.sound_query ?? ''),
+        sound_db: edit.soundDb !== undefined && edit.soundDb !== null && edit.soundDb !== '' ? edit.soundDb : itemDefaultDb,
         scheduled_time: edit.scheduledTime || null,
       });
       if (data.status === 'success') {
@@ -188,11 +225,13 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     setGeneratingCaption(item.item_key);
     try {
       const data = await generateCaptionApi({
+        item_name: item.name,
         topic: item.name,
         category: item.category,
         account: item.account,
+        item_path: item.path || '',
       });
-      if (data.status === 'success') {
+      if (data?.status === 'success' && data?.caption) {
         setEditedItems((prev) => ({
           ...prev,
           [item.item_key]: {
@@ -200,9 +239,12 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
             caption: data.caption,
           },
         }));
-        showToast(`AI berhasil merumuskan caption untuk '${item.name}'`);
+        showToast(`✓ AI berhasil merumuskan caption untuk '${item.name}'`);
       } else {
-        showToast(data.detail || 'Gagal menghasilkan caption', 'error');
+        const errorMsg = typeof data?.detail === 'string'
+          ? data.detail
+          : (data?.message || 'Gagal menghasilkan caption');
+        showToast(errorMsg, 'error');
       }
     } catch {
       showToast('Gagal menghubungi service AI Caption', 'error');
@@ -224,7 +266,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     if (!item) return;
     
     if (platformTarget === 'all' && isPublishDisabled) {
-      showToast('Harap hubungkan akun ke minimal satu platform (TikTok atau Meta Suite)', 'error');
+      showToast('Harap hubungkan akun ke minimal satu platform (TikTok, Instagram, atau Facebook)', 'error');
       setShowAccountManagerModal(true);
       return;
     }
@@ -233,8 +275,13 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       setShowAccountManagerModal(true);
       return;
     }
-    if (platformTarget === 'meta' && !currentAccData.meta_active) {
-      showToast('Sesi login Meta Suite belum terhubung. Silakan hubungkan akun Meta terlebih dahulu.', 'error');
+    if (platformTarget === 'instagram' && !currentAccData.instagram_active) {
+      showToast('Sesi login Instagram belum terhubung. Silakan hubungkan akun Instagram terlebih dahulu.', 'error');
+      setShowAccountManagerModal(true);
+      return;
+    }
+    if (platformTarget === 'facebook' && !currentAccData.facebook_active) {
+      showToast('Sesi login Facebook belum terhubung. Silakan hubungkan akun Facebook terlebih dahulu.', 'error');
       setShowAccountManagerModal(true);
       return;
     }
@@ -244,7 +291,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
 
     const targetLabel = platformTarget === 'all'
       ? activePlatforms.join(' & ')
-      : (platformTarget === 'tiktok' ? 'TikTok Studio' : 'Meta Business Suite');
+      : (platformTarget === 'tiktok' ? 'TikTok Studio' : (platformTarget === 'instagram' ? 'Instagram Web' : 'Facebook Fanspage'));
 
     showToast(`Memulai proses upload ${item.name} ke ${targetLabel}...`, 'info');
 
@@ -258,7 +305,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       if (data.status === 'started') {
         showToast(`Browser terbuka. Otomatis memantau & memperbarui status saat upload selesai...`, 'info');
         
-        // Polling setiap 4 detik untuk memperbarui status upload secara real-time
+        // Polling setiap 3 detik untuk memperbarui status upload secara real-time
         if (pollingRef.current) clearInterval(pollingRef.current);
         const initialPlatforms = [...(item.uploaded_platforms || [])];
         let pollCount = 0;
@@ -272,12 +319,25 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
               const updatedItem = res.items.find((i) => i.item_key === item.item_key);
               const newPlatforms = updatedItem?.uploaded_platforms || [];
 
-              // Cek apakah ada platform baru yang berhasil terposting
-              const hasNewUpload = newPlatforms.length > initialPlatforms.length ||
-                (platformTarget === 'tiktok' && newPlatforms.includes('tiktok') && !initialPlatforms.includes('tiktok')) ||
-                (platformTarget === 'meta' && (newPlatforms.includes('meta') || newPlatforms.includes('instagram')) && !(initialPlatforms.includes('meta') || initialPlatforms.includes('instagram')));
+              // Cek apakah platform target telah selesai diunggah secara penuh
+              let isTargetCompleted = false;
+              if (platformTarget === 'tiktok') {
+                isTargetCompleted = newPlatforms.includes('tiktok') && (!initialPlatforms.includes('tiktok') || pollCount >= 5);
+              } else if (platformTarget === 'instagram') {
+                isTargetCompleted = (newPlatforms.includes('instagram') || newPlatforms.includes('meta')) && (!initialPlatforms.includes('instagram') || pollCount >= 5);
+              } else if (platformTarget === 'facebook') {
+                isTargetCompleted = newPlatforms.includes('facebook') && (!initialPlatforms.includes('facebook') || pollCount >= 5);
+              } else if (platformTarget === 'all') {
+                // Mode Master: Tunggu hingga SEMUA platform aktif (TikTok, Instagram, Facebook) selesai terposting
+                const hasAllActive = activePlatforms.length > 0 && activePlatforms.every((p) => {
+                  const pLower = p.toLowerCase();
+                  if (pLower === 'instagram') return newPlatforms.includes('instagram') || newPlatforms.includes('meta');
+                  return newPlatforms.includes(pLower);
+                });
+                isTargetCompleted = hasAllActive || (newPlatforms.includes('tiktok') && newPlatforms.includes('instagram') && newPlatforms.includes('facebook'));
+              }
 
-              if (hasNewUpload) {
+              if (isTargetCompleted) {
                 clearInterval(pollingRef.current);
                 pollingRef.current = null;
                 setUploadingItem(null);
@@ -289,14 +349,14 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
             // Abaikan temporary error saat polling
           }
 
-          // Timeout setelah 2.5 menit (35 x 4s) jika user menutup browser manual
-          if (pollCount >= 35) {
+          // Timeout aman setelah 90x polling (270 detik / 4.5 menit) agar cukup waktu untuk 3 platform berurutan
+          if (pollCount >= 90) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
             setUploadingItem(null);
             fetchContent();
           }
-        }, 4000);
+        }, 3000);
       }
     } catch {
       showToast('Gagal memulai proses upload', 'error');

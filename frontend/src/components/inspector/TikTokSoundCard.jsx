@@ -7,6 +7,8 @@ export default function TikTokSoundCard({
   setEditedItems,
 }) {
   const soundMode = currentEdit?.soundMode || 'search';
+  const defaultDb = selectedItem?.category === 'Video' ? '-7' : '0';
+  const soundDbValue = currentEdit?.soundDb !== undefined && currentEdit?.soundDb !== null ? currentEdit.soundDb : defaultDb;
 
   return (
     <div className="bg-zinc-950/70 p-3.5 rounded-xl border border-zinc-800 flex flex-col gap-3">
@@ -75,7 +77,7 @@ export default function TikTokSoundCard({
             </label>
             <input
               type="text"
-              value={currentEdit?.soundQuery || 'school'}
+              value={currentEdit?.soundQuery || ''}
               onChange={(e) =>
                 setEditedItems((prev) => ({
                   ...prev,
@@ -85,7 +87,7 @@ export default function TikTokSoundCard({
                   },
                 }))
               }
-              placeholder="Misal: nasyid, school, santri, islami"
+              placeholder="Opsional: misal nasyid, santri, dll"
               className="w-full bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg text-xs text-cyan-300 outline-none font-mono placeholder:text-zinc-600 focus:border-cyan-500/50"
             />
           </div>
@@ -96,7 +98,7 @@ export default function TikTokSoundCard({
             </label>
             <input
               type="text"
-              value={currentEdit?.soundDb || '-7'}
+              value={soundDbValue}
               onChange={(e) =>
                 setEditedItems((prev) => ({
                   ...prev,
@@ -106,7 +108,7 @@ export default function TikTokSoundCard({
                   },
                 }))
               }
-              placeholder="-7"
+              placeholder={defaultDb}
               className="w-full bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg text-xs text-amber-300 outline-none font-mono placeholder:text-zinc-600 focus:border-amber-500/50"
             />
           </div>
@@ -134,7 +136,7 @@ export default function TikTokSoundCard({
               <span className="text-[10px] font-mono text-zinc-500">dB:</span>
               <input
                 type="text"
-                value={currentEdit?.soundDb || '-7'}
+                value={soundDbValue}
                 onChange={(e) =>
                   setEditedItems((prev) => ({
                     ...prev,
@@ -144,7 +146,7 @@ export default function TikTokSoundCard({
                     },
                   }))
                 }
-                placeholder="-7"
+                placeholder={defaultDb}
                 className="w-20 bg-zinc-900 border border-zinc-800 px-2 py-1 rounded-lg text-xs text-amber-300 text-center font-mono outline-none focus:border-amber-500/50"
               />
             </div>

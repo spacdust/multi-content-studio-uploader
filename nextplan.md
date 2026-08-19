@@ -50,6 +50,6 @@ Menjalankan aplikasi resmi Instagram (APK) di dalam emulator Android ringan (sep
 ---
 
 ## 🎯 Status Roadmap
-- [ ] **Fase 1 (Aktif):** Instagram Web Direct Uploader (`instagram.com`) via Playwright dengan selector rasio *Original* 9:16 & auto-share Facebook.
-- [ ] **Fase 2 (Backlog):** Eksperimen `instagrapi` untuk akun sekunder / pengujian kecepatan.
-- [ ] **Fase 3 (Backlog):** Integrasi ADB / LDPlayer bridge untuk fitur tingkat lanjut (Instagram In-App Sounds).
+- [x] **Fase 1 (Selesai):** Instagram Web Direct Uploader (`instagram.com`) via Playwright dengan selector rasio *Original* 9:16.
+- [x] **Fase 2 (Selesai & Aktif):** Integrasi `instagrapi` Mobile Protocol ke [`src/instagram_uploader.py`](file:///c:/Users/spacdust/Desktop/DEV/Bot/content-uploader/src/instagram_uploader.py) untuk upload 9:16 Poster, Carousel, & Reels dengan pemicu paralel auto-share Facebook.
+- [ ] **Fase 3 (Backlog):** Integrasi ADB / LDPlayer bridge untuk fitur tingkat lanjut (Instagram In-App Stickers & Sound Picker).

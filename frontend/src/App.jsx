@@ -45,7 +45,8 @@ export default function App() {
         handleAccountChange={accountsState.handleAccountChange}
         setShowAccountManagerModal={accountsState.setShowAccountManagerModal}
         handleOpenTikTokStudioBrowser={accountsState.handleOpenTikTokStudioBrowser}
-        handleOpenMetaBusinessBrowser={accountsState.handleOpenMetaBusinessBrowser}
+        handleOpenInstagramBrowser={accountsState.handleOpenInstagramBrowser}
+        handleOpenFacebookBrowser={accountsState.handleOpenFacebookBrowser}
         setShowSettingsModal={settingsState.setShowSettingsModal}
         setTestResult={settingsState.setTestResult}
         showToast={showToast}
@@ -84,6 +85,8 @@ export default function App() {
             loadingContent={contentState.loadingContent}
             selectedItemKey={contentState.selectedItemKey}
             onSelectItem={contentState.setSelectedItemKey}
+            filterDate={contentState.filterDate}
+            setFilterDate={contentState.setFilterDate}
             onDeleteClick={(item) => {
               contentState.setItemToDelete(item);
               contentState.setShowDeleteConfirmModal(true);
@@ -124,7 +127,9 @@ export default function App() {
         handleAccountChange={accountsState.handleAccountChange}
         handleTriggerLogin={accountsState.handleTriggerLogin}
         handleOpenTikTokStudioBrowser={accountsState.handleOpenTikTokStudioBrowser}
-        handleOpenMetaBusinessBrowser={accountsState.handleOpenMetaBusinessBrowser}
+        handleOpenInstagramBrowser={accountsState.handleOpenInstagramBrowser}
+        handleOpenFacebookBrowser={accountsState.handleOpenFacebookBrowser}
+        handleLoginInstagramMobile={accountsState.handleLoginInstagramMobile}
         fetchAccounts={accountsState.fetchAccounts}
         loggingInPlatform={accountsState.loggingInPlatform}
         showToast={showToast}

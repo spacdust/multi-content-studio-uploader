@@ -104,29 +104,19 @@ function ContentCard({
             {(() => {
               const uploaded = item.uploaded_platforms || [];
               const hasTiktok = uploaded.includes('tiktok');
-              const hasMeta = uploaded.includes('meta') || uploaded.includes('instagram');
+              const hasInstagram = uploaded.includes('instagram') || uploaded.includes('meta');
+              const hasFacebook = uploaded.includes('facebook');
 
-              if (hasTiktok && hasMeta) {
+              const labels = [];
+              if (hasTiktok) labels.push('TT');
+              if (hasInstagram) labels.push('IG');
+              if (hasFacebook) labels.push('FB');
+
+              if (labels.length > 0) {
                 return (
                   <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 flex items-center gap-1 shadow-xs">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>✓ TIKTOK & META</span>
-                  </span>
-                );
-              }
-              if (hasTiktok) {
-                return (
-                  <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md bg-cyan-950/80 border border-cyan-500/50 text-cyan-300 flex items-center gap-1 shadow-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                    <span>✓ TIKTOK</span>
-                  </span>
-                );
-              }
-              if (hasMeta) {
-                return (
-                  <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md bg-blue-950/80 border border-blue-500/50 text-blue-300 flex items-center gap-1 shadow-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                    <span>✓ META SUITE</span>
+                    <span>✓ {labels.join(' · ')}</span>
                   </span>
                 );
               }
