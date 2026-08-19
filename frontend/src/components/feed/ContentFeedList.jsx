@@ -9,6 +9,7 @@ export default function ContentFeedList({
   onDeleteClick,
   filterDate,
   setFilterDate,
+  onToast,
 }) {
   if (loadingContent) {
     return (
@@ -54,6 +55,7 @@ export default function ContentFeedList({
           isSelected={item.item_key === selectedItemKey}
           onSelect={onSelectItem}
           onDeleteClick={onDeleteClick}
+          onToast={onToast}
         />
       ))}
     </div>

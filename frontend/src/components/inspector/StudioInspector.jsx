@@ -25,6 +25,7 @@ export default function StudioInspector({
   activePlatforms,
   currentAccData,
   handleUploadItem,
+  showToast,
 }) {
   if (!selectedItem) {
     return (
@@ -127,6 +128,7 @@ export default function StudioInspector({
         activePlatforms={activePlatforms}
         currentAccData={currentAccData}
         handleUploadItem={handleUploadItem}
+        showToast={showToast}
       />
     </aside>
   );

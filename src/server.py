@@ -109,6 +109,11 @@ class CreateAccountRequest(BaseModel):
     name: str
     description: Optional[str] = ""
 
+class UpdateLinksRequest(BaseModel):
+    account: str
+    item_key: str
+    post_urls: Dict[str, str]
+
 # Helper to read and write .env
 def read_current_env() -> Dict[str, str]:
     env_data = {
@@ -416,6 +421,8 @@ def get_content(account: Optional[str] = None):
             "caption": item["caption"],
             "meta": item["meta"],
             "uploaded_platforms": item["uploaded_platforms"],
+            "uploaded_timestamps": item.get("uploaded_timestamps", {}),
+            "post_urls": item.get("post_urls", {}),
             "status": item["status"],
             "created_at": item.get("created_at", 0.0),
             "mtime": item.get("mtime", 0.0),
@@ -424,6 +431,12 @@ def get_content(account: Optional[str] = None):
             "slides": [s.name for s in item["slides"]] if "slides" in item and item["slides"] else []
         })
     return {"items": serialized}
+
+@app.post("/api/content/update-links")
+def update_post_links(req: UpdateLinksRequest):
+    """Updates post URLs (TikTok, Instagram, Facebook) for an uploaded content item."""
+    success = ContentManager.update_post_urls(req.account, req.item_key, req.post_urls)
+    return {"status": "success" if success else "error", "item_key": req.item_key, "post_urls": req.post_urls}
 
 @app.post("/api/content/init-date")
 def init_date_folder(req: InitDateRequest):

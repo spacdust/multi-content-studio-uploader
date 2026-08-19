@@ -67,13 +67,22 @@ class ContentManager:
             return {}
 
     @classmethod
-    def mark_as_uploaded(cls, account_name: str, item_key: str, platform: str, proof_path: Optional[str] = None):
-        """Marks a content item as successfully uploaded."""
+    def mark_as_uploaded(cls, account_name: str, item_key: str, platform: str, proof_path: Optional[str] = None, post_url: Optional[str] = None):
+        """Marks a content item as successfully uploaded with timestamp, proof, and post URL."""
         hist_file = cls.get_history_file(account_name)
         history = cls.load_history(account_name)
         
         if item_key not in history:
-            history[item_key] = {"uploaded_platforms": [], "timestamps": {}, "proofs": {}}
+            history[item_key] = {"uploaded_platforms": [], "timestamps": {}, "proofs": {}, "post_urls": {}}
+
+        if "post_urls" not in history[item_key]:
+            history[item_key]["post_urls"] = {}
+
+        if "timestamps" not in history[item_key]:
+            history[item_key]["timestamps"] = {}
+
+        if "proofs" not in history[item_key]:
+            history[item_key]["proofs"] = {}
 
         if platform not in history[item_key]["uploaded_platforms"]:
             history[item_key]["uploaded_platforms"].append(platform)
@@ -81,9 +90,33 @@ class ContentManager:
         history[item_key]["timestamps"][platform] = time.strftime("%Y-%m-%d %H:%M:%S")
         if proof_path:
             history[item_key]["proofs"][platform] = str(proof_path)
+        if post_url:
+            history[item_key]["post_urls"][platform] = str(post_url).strip()
 
         with open(hist_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2)
+
+    @classmethod
+    def update_post_urls(cls, account_name: str, item_key: str, post_urls: Dict[str, str]) -> bool:
+        """Updates or sets post URLs for specific platforms of an item."""
+        hist_file = cls.get_history_file(account_name)
+        history = cls.load_history(account_name)
+
+        if item_key not in history:
+            history[item_key] = {"uploaded_platforms": [], "timestamps": {}, "proofs": {}, "post_urls": {}}
+        
+        if "post_urls" not in history[item_key]:
+            history[item_key]["post_urls"] = {}
+
+        for plat, url in post_urls.items():
+            if url:
+                history[item_key]["post_urls"][plat] = str(url).strip()
+            elif plat in history[item_key]["post_urls"]:
+                del history[item_key]["post_urls"][plat]
+
+        with open(hist_file, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+        return True
 
     @classmethod
     def read_or_generate_caption_and_meta(
@@ -240,7 +273,10 @@ class ContentManager:
                             if vid_file.is_file() and vid_file.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS:
                                 item_key = f"Video/{date_folder.name}/{vid_file.name}"
                                 caption, meta = cls.read_or_generate_caption_and_meta(vid_file, "Video", acc)
-                                uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                hist_item = history.get(item_key, {})
+                                uploaded_p = hist_item.get("uploaded_platforms", [])
+                                uploaded_ts = hist_item.get("timestamps", {})
+                                post_urls = hist_item.get("post_urls", {})
                                 item_ts = cls._extract_item_timestamp(vid_file, date_folder.name)
                                 mtime = vid_file.stat().st_mtime if vid_file.exists() else item_ts
                                 
@@ -256,6 +292,8 @@ class ContentManager:
                                     "created_at": item_ts,
                                     "mtime": mtime,
                                     "uploaded_platforms": uploaded_p,
+                                    "uploaded_timestamps": uploaded_ts,
+                                    "post_urls": post_urls,
                                     "status": "UPLOADED" if uploaded_p else "PENDING"
                                 })
 
@@ -268,7 +306,10 @@ class ContentManager:
                             if pic_file.is_file() and pic_file.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
                                 item_key = f"Poster/{date_folder.name}/{pic_file.name}"
                                 caption, meta = cls.read_or_generate_caption_and_meta(pic_file, "Poster", acc)
-                                uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                hist_item = history.get(item_key, {})
+                                uploaded_p = hist_item.get("uploaded_platforms", [])
+                                uploaded_ts = hist_item.get("timestamps", {})
+                                post_urls = hist_item.get("post_urls", {})
                                 item_ts = cls._extract_item_timestamp(pic_file, date_folder.name)
                                 mtime = pic_file.stat().st_mtime if pic_file.exists() else item_ts
 
@@ -284,6 +325,8 @@ class ContentManager:
                                     "created_at": item_ts,
                                     "mtime": mtime,
                                     "uploaded_platforms": uploaded_p,
+                                    "uploaded_timestamps": uploaded_ts,
+                                    "post_urls": post_urls,
                                     "status": "UPLOADED" if uploaded_p else "PENDING"
                                 })
 
@@ -301,7 +344,10 @@ class ContentManager:
                                 if slides:
                                     item_key = f"Carousel/{date_folder.name}/{car_sub.name}"
                                     caption, meta = cls.read_or_generate_caption_and_meta(car_sub, "Carousel", acc)
-                                    uploaded_p = history.get(item_key, {}).get("uploaded_platforms", [])
+                                    hist_item = history.get(item_key, {})
+                                    uploaded_p = hist_item.get("uploaded_platforms", [])
+                                    uploaded_ts = hist_item.get("timestamps", {})
+                                    post_urls = hist_item.get("post_urls", {})
                                     item_ts = cls._extract_item_timestamp(car_sub, date_folder.name, slides)
                                     mtime = min(s.stat().st_mtime for s in slides) if slides else item_ts
 
@@ -318,6 +364,8 @@ class ContentManager:
                                         "created_at": item_ts,
                                         "mtime": mtime,
                                         "uploaded_platforms": uploaded_p,
+                                        "uploaded_timestamps": uploaded_ts,
+                                        "post_urls": post_urls,
                                         "status": "UPLOADED" if uploaded_p else "PENDING"
                                     })
 

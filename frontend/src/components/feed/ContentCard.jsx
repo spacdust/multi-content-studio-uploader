@@ -13,12 +13,14 @@ import {
   formatDateDisplay,
   formatTimeDisplay,
 } from '../../utils/dateUtils';
+import CopyLinksButton from './CopyLinksButton';
 
 function ContentCard({
   item,
   isSelected,
   onSelect,
   onDeleteClick,
+  onToast,
 }) {
   const isScheduled = Boolean(item.meta?.scheduled_time);
 
@@ -114,10 +116,13 @@ function ContentCard({
 
               if (labels.length > 0) {
                 return (
-                  <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 flex items-center gap-1 shadow-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>✓ {labels.join(' · ')}</span>
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 flex items-center gap-1 shadow-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      <span>✓ {labels.join(' · ')}</span>
+                    </span>
+                    <CopyLinksButton item={item} onToast={onToast} size="sm" />
+                  </div>
                 );
               }
               return (

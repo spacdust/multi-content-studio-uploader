@@ -87,6 +87,7 @@ export default function App() {
             onSelectItem={contentState.setSelectedItemKey}
             filterDate={contentState.filterDate}
             setFilterDate={contentState.setFilterDate}
+            onToast={showToast}
             onDeleteClick={(item) => {
               contentState.setItemToDelete(item);
               contentState.setShowDeleteConfirmModal(true);
@@ -112,6 +113,7 @@ export default function App() {
           activePlatforms={contentState.activePlatforms}
           currentAccData={accountsState.currentAccData}
           handleUploadItem={contentState.handleUploadItem}
+          showToast={showToast}
         />
       </main>
 

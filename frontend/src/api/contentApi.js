@@ -58,3 +58,12 @@ export async function initDateFolderApi(account, date) {
   });
   return await res.json();
 }
+
+export async function updatePostLinksApi(account, itemKey, postUrls) {
+  const res = await fetch('/api/content/update-links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account, item_key: itemKey, post_urls: postUrls }),
+  });
+  return await res.json();
+}

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Upload, CheckCircle2, Clock } from 'lucide-react';
+import CopyLinksButton from '../feed/CopyLinksButton';
 
 export default function PublishActionCenter({
   selectedItem,
@@ -9,6 +10,7 @@ export default function PublishActionCenter({
   activePlatforms,
   currentAccData,
   handleUploadItem,
+  showToast,
 }) {
   const uploaded = selectedItem?.uploaded_platforms || [];
   const hasTiktok = uploaded.includes('tiktok');
@@ -20,6 +22,16 @@ export default function PublishActionCenter({
 
   return (
     <div className="pt-2 flex flex-col gap-2.5">
+      {/* Copy Links Action (if already uploaded to at least 1 platform) */}
+      {uploaded.length > 0 && (
+        <div className="p-3 rounded-xl bg-gradient-to-b from-zinc-900/90 to-zinc-950 border border-zinc-800/90 flex flex-col gap-2 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-zinc-300">📋 Tautan Publik Postingan:</span>
+            <span className="text-[9px] font-mono text-zinc-500">Cooldown 10 Menit</span>
+          </div>
+          <CopyLinksButton item={selectedItem} onToast={showToast} size="lg" />
+        </div>
+      )}
       {/* 0. Live Publication Status Banner */}
       <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/90 flex flex-col gap-2 shadow-xs">
         <div className="flex items-center justify-between">
