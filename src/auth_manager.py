@@ -426,8 +426,22 @@ class AuthManager:
             """)
             page = context.new_page()
             try:
-                page.goto(TIKTOK_LOGIN_URL, wait_until="domcontentloaded", timeout=45000)
+                page.goto("https://www.tiktok.com/", wait_until="domcontentloaded", timeout=45000)
                 page.bring_to_front()
+                time.sleep(2)
+                for sel in [
+                    "button[data-e2e='top-login-button']",
+                    "button:has-text('Masuk')",
+                    "button:has-text('Log in')",
+                    "a[href*='login']"
+                ]:
+                    try:
+                        b = page.locator(sel).first
+                        if b.count() > 0 and b.is_visible():
+                            b.click(timeout=2000)
+                            break
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
