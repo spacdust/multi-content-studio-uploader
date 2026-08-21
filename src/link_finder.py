@@ -311,45 +311,57 @@ class LinkFinder:
         # Method A: Instagrapi (Mobile API protocol - Fast & Headless)
         acc_dir = get_account_dir(account_name)
         session_file = acc_dir / "instagrapi_session.json"
-        if session_file.exists():
-            try:
-                from instagrapi import Client
-                cl = Client()
-                cl.load_settings(session_file)
-                user_id = cl.user_id
-                if user_id:
-                    console.print(f"[cyan]Memindai feed Instagram ({resolved_cat}) untuk [{account_name}]...[/cyan]")
-                    
-                    if resolved_cat == "Video":
-                        medias = cl.user_clips(user_id, amount=25)
-                    else:
-                        medias = cl.user_medias(user_id, amount=20)
-
-                    best_media = None
-                    best_score = 0.0
-
-                    for m in medias:
-                        cap = m.caption_text or ""
-                        score = caption_match_score(caption, cap)
-                        if score > best_score:
-                            best_score = score
-                            best_media = m
-
-                    target_m = best_media if (best_media and (best_score >= 0.45 or not caption.strip())) else (medias[0] if medias else None)
-
-                    if target_m:
-                        code = target_m.code
-                        link_type = "reel" if resolved_cat == "Video" else "p"
-                        url = f"https://www.instagram.com/{link_type}/{code}/"
-                        cls.save_cached_urls(account_name, item_key, {"instagram": url})
-                        msg = f"Link Instagram ditemukan dengan kecocokan {(best_score*100):.0f}%." if best_media else "Link Instagram terbaru berhasil diambil."
-                        return True, url, msg
-            except Exception:
-                pass
-
-        # Method B: Playwright Instagram Web fallback
         state_file = get_account_state_file(account_name, "instagram")
         safe_state = get_safe_storage_state(state_file)
+
+        cl = None
+        try:
+            from instagrapi import Client
+            cl = Client()
+            if session_file.exists():
+                cl.load_settings(session_file)
+            elif safe_state:
+                # Extract sessionid from Playwright state cookies
+                cookies = safe_state.get("cookies", [])
+                cookie_dict = {c["name"]: c["value"] for c in cookies}
+                sessionid = cookie_dict.get("sessionid")
+                if sessionid:
+                    cl.login_by_sessionid(sessionid)
+                    try:
+                        cl.dump_settings(session_file)
+                    except Exception:
+                        pass
+
+            if cl and cl.user_id:
+                console.print(f"[cyan]Memindai feed Instagram ({resolved_cat}) untuk [{account_name}] via Mobile API...[/cyan]")
+                if resolved_cat == "Video":
+                    medias = cl.user_clips(cl.user_id, amount=25)
+                else:
+                    medias = cl.user_medias(cl.user_id, amount=25)
+
+                best_media = None
+                best_score = 0.0
+
+                for m in medias:
+                    cap = m.caption_text or ""
+                    score = caption_match_score(caption, cap)
+                    if score > best_score:
+                        best_score = score
+                        best_media = m
+
+                target_m = best_media if (best_media and (best_score >= 0.45 or not caption.strip())) else (medias[0] if medias else None)
+
+                if target_m:
+                    code = target_m.code
+                    link_type = "reel" if resolved_cat == "Video" else "p"
+                    url = f"https://www.instagram.com/{link_type}/{code}/"
+                    cls.save_cached_urls(account_name, item_key, {"instagram": url})
+                    msg = f"Link Instagram ditemukan dengan kecocokan {(best_score*100):.0f}%." if best_media else "Link Instagram terbaru berhasil diambil."
+                    return True, url, msg
+        except Exception:
+            pass
+
+        # Method B: Playwright Instagram Web fallback
         if not safe_state:
             return False, None, f"Sesi Instagram akun '{account_name}' belum login."
 
@@ -361,11 +373,30 @@ class LinkFinder:
                 page = context.new_page()
 
                 console.print(f"[cyan]Memindai Instagram Web untuk [{account_name}]...[/cyan]")
-                page.goto("https://www.instagram.com/", timeout=30000, wait_until="domcontentloaded")
-                page.wait_for_timeout(3000)
+                page.goto("https://www.instagram.com/", timeout=35000, wait_until="domcontentloaded")
+                page.wait_for_timeout(3500)
+
+                # Detect username from page
+                username = page.evaluate("""() => {
+                    const links = Array.from(document.querySelectorAll("a[role='link'], a"));
+                    for (const a of links) {
+                        const h = a.getAttribute('href') || '';
+                        if (h.startsWith('/') && h.endsWith('/') && h.split('/').length === 3) {
+                            const candidate = h.split('/')[1];
+                            if (!['explore', 'reels', 'direct', 'stories', 'accounts', 'your_activity'].includes(candidate)) {
+                                return candidate;
+                            }
+                        }
+                    }
+                    return null;
+                }""") or account_name.lower().replace(' ', '_')
+
+                profile_url = f"https://www.instagram.com/{username}/"
+                page.goto(profile_url, timeout=30000, wait_until="domcontentloaded")
+                page.wait_for_timeout(3500)
 
                 hrefs = page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll("a[href*='/p/'], a[href*='/reel/']")).map(a => a.href);
+                    return Array.from(document.querySelectorAll("a[href*='/p/'], a[href*='/reel/']")).map(a => a.href.split('?')[0]);
                 }""")
                 browser.close()
 
@@ -379,7 +410,7 @@ class LinkFinder:
                         if photo_hrefs:
                             hrefs = photo_hrefs
 
-                    top_url = hrefs[0].split("?")[0]
+                    top_url = hrefs[0]
                     cls.save_cached_urls(account_name, item_key, {"instagram": top_url})
                     return True, top_url, "Link Instagram berhasil ditemukan."
 
