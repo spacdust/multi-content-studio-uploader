@@ -121,7 +121,7 @@ function ContentCard({
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                       <span>✓ {labels.join(' · ')}</span>
                     </span>
-                    <CopyLinksButton item={item} onToast={onToast} size="sm" />
+                    <CopyLinksButton item={item} account={item.account} onToast={onToast} size="sm" />
                   </div>
                 );
               }

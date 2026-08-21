@@ -6,17 +6,20 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from rich.console import Console
 
+from playwright.sync_api import sync_playwright
+
 from src.config import (
     get_account_state_file,
     get_account_dir,
     INSTAGRAM_BASE_URL,
     DEFAULT_USER_AGENT,
     LOGS_DIR,
-    launch_browser
+    launch_browser,
+    get_safe_storage_state
 )
 from src.validator import ContentValidator
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 class InstagramUploader:
     """
@@ -156,7 +159,7 @@ class InstagramUploader:
 
             if media and getattr(media, "code", None):
                 post_url = f"https://www.instagram.com/p/{media.code}/"
-                console.print(f"[bold green]✓ Berhasil dipublikasikan ke Instagram Mobile & Paralel Facebook![/bold green]")
+                console.print(f"[bold green][OK] Berhasil dipublikasikan ke Instagram Mobile & Paralel Facebook![/bold green]")
                 console.print(f"URL Post: [cyan]{post_url}[/cyan]")
                 
                 # Simpan update session
@@ -175,43 +178,53 @@ class InstagramUploader:
         media_paths: List[str | Path],
         caption: str = "",
         is_reel: bool = False,
-        account_name: str = "default"
+        account_name: str = "default",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Fallback uploader using Playwright Web automation with 9:16 original ratio selector.
         """
         from playwright.sync_api import sync_playwright
+        from src.publish_tracker import PublishTracker
+
         resolved_files = [str(Path(p).resolve()) for p in media_paths]
         category_name = "Reels" if is_reel else ("Carousel" if len(resolved_files) > 1 else "Poster")
 
         state_file = get_account_state_file(account_name, "instagram")
         if not state_file.exists():
-            return False, f"Sesi Instagram untuk akun '{account_name}' belum ada. Silakan login terlebih dahulu.", None
+            err_msg = f"Sesi Instagram untuk akun '{account_name}' belum ada. Silakan login terlebih dahulu."
+            PublishTracker.update_step(session_id, "instagram", "Sesi Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+            return False, err_msg, None
 
         sanitized_caption = ContentValidator.sanitize_caption(caption, platform="instagram")
         timestamp = int(time.time())
         screenshot_path = str(LOGS_DIR / f"instagram_{account_name}_{timestamp}.png")
 
         console.print(f"[bold cyan]=== MEMULAI UPLOAD INSTAGRAM WEB FALLBACK {category_name.upper()} ===[/bold cyan]")
+        PublishTracker.update_step(session_id, "instagram", "Membuka browser Instagram...", 15, f"Membuka halaman Instagram Web untuk akun '{account_name}'", "info")
 
         with sync_playwright() as p:
             browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
+            safe_state = get_safe_storage_state(state_file)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=str(state_file)
+                storage_state=safe_state
             )
             page = context.new_page()
 
             try:
+                PublishTracker.update_step(session_id, "instagram", "Memuat Instagram Web...", 25, "Memuat halaman utama Instagram", "step")
                 page.goto(INSTAGRAM_BASE_URL, timeout=45000, wait_until="domcontentloaded")
                 page.wait_for_timeout(5000)
 
                 if "accounts/login" in page.url:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, f"Session Instagram untuk '{account_name}' telah kadaluarsa.", screenshot_path
+                    err_msg = f"Session Instagram untuk '{account_name}' telah kadaluarsa."
+                    PublishTracker.update_step(session_id, "instagram", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 # Dismiss popups
                 try:
@@ -224,6 +237,7 @@ class InstagramUploader:
                     pass
 
                 # Click Create -> Post
+                PublishTracker.update_step(session_id, "instagram", "Membuka menu Buat Postingan...", 35, "Mengklik tombol Buat / Create Postingan Baru", "step")
                 create_btn = page.locator("svg[aria-label='New post'], svg[aria-label='Postingan baru'], span:text-is('Create'), span:text-is('Buat')").first
                 if create_btn.count() == 0:
                     create_btn = page.locator("div[role='button']:has-text('Create'), div[role='button']:has-text('Buat')").first
@@ -240,8 +254,11 @@ class InstagramUploader:
                 if file_input.count() == 0:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, "Input file tidak ditemukan.", screenshot_path
+                    err_msg = "Input file tidak ditemukan."
+                    PublishTracker.update_step(session_id, "instagram", "Input Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
+                PublishTracker.update_step(session_id, "instagram", f"Mengunggah {len(resolved_files)} file media...", 45, f"Mengunggah file media {category_name} ke Instagram", "step")
                 file_input.set_input_files(resolved_files)
                 page.wait_for_timeout(5000)
 
@@ -251,6 +268,7 @@ class InstagramUploader:
 
                 # 3. Select Original (9:16)
                 console.print("[cyan]Menyesuaikan rasio aspek menjadi Original (9:16)...[/cyan]")
+                PublishTracker.update_step(session_id, "instagram", "Menyesuaikan rasio 9:16...", 60, "Menyesuaikan rasio aspek media menjadi Original 9:16", "step")
                 crop_btn = page.locator(
                     "div[role='dialog'] button:has(svg[aria-label='Select crop']), "
                     "div[role='dialog'] button:has(svg[aria-label='Pilih pemotongan']), "
@@ -307,6 +325,7 @@ class InstagramUploader:
 
                 # Caption
                 if sanitized_caption:
+                    PublishTracker.update_step(session_id, "instagram", "Mengisi caption Instagram...", 75, "Mengisi teks caption dan hashtag di Instagram", "step")
                     caption_box = page.locator("div[aria-label='Write a caption...'], div[aria-label='Tulis keterangan...'], div[role='textbox']").first
                     if caption_box.count() > 0:
                         caption_box.click()
@@ -315,6 +334,7 @@ class InstagramUploader:
                         page.wait_for_timeout(1000)
 
                 # Share
+                PublishTracker.update_step(session_id, "instagram", "Mempublikasikan postingan...", 85, "Menekan tombol 'Bagikan' / 'Share' Instagram", "step")
                 share_btn = page.locator(
                     "div[role='dialog'] div[role='button']:has-text('Share'), "
                     "div[role='dialog'] div[role='button']:has-text('Bagikan'), "
@@ -326,9 +346,12 @@ class InstagramUploader:
                 else:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, "Tombol Share tidak ditemukan.", screenshot_path
+                    err_msg = "Tombol Share tidak ditemukan."
+                    PublishTracker.update_step(session_id, "instagram", "Tombol Share Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 # Wait success
+                PublishTracker.update_step(session_id, "instagram", "Menunggu konfirmasi terbit...", 95, "Menunggu konfirmasi Instagram (Reel/Post shared)...", "step")
                 for _ in range(35):
                     page.wait_for_timeout(2000)
                     c = page.content().lower()
@@ -336,8 +359,13 @@ class InstagramUploader:
                         break
 
                 page.wait_for_timeout(2000)
+                try:
+                    context.storage_state(path=str(state_file))
+                except Exception:
+                    pass
                 page.screenshot(path=screenshot_path)
                 browser.close()
+                PublishTracker.update_step(session_id, "instagram", "Instagram Berhasil Terbit!", 100, f"Postingan Instagram untuk akun '{account_name}' berhasil dipublikasikan!", "success", is_completed=True, post_url=screenshot_path)
                 return True, f"{category_name} berhasil diupload via Web Browser.", screenshot_path
 
             except Exception as ex:
@@ -346,14 +374,17 @@ class InstagramUploader:
                 except Exception:
                     pass
                 browser.close()
-                return False, f"Error Web: {str(ex)}", screenshot_path
+                err_msg = f"Error Web Instagram: {str(ex)}"
+                PublishTracker.update_step(session_id, "instagram", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                return False, err_msg, screenshot_path
 
     def upload_media(
         self,
         media_paths: List[str | Path] | str | Path,
         caption: str = "",
         is_reel: bool = False,
-        account_name: str = "default"
+        account_name: str = "default",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Main upload entry point: Tries mobile protocol first for parallel Facebook posting,
@@ -369,7 +400,8 @@ class InstagramUploader:
             media_paths=media_list,
             caption=caption,
             is_reel=is_reel,
-            account_name=account_name
+            account_name=account_name,
+            session_id=session_id
         )
 
     # Alias for backward compatibility
@@ -378,11 +410,77 @@ class InstagramUploader:
         video_path: str | Path,
         caption: str = "",
         as_reel: bool = True,
-        account_name: str = "default"
+        account_name: str = "default",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         return self.upload_media(
             media_paths=[video_path],
             caption=caption,
             is_reel=as_reel,
-            account_name=account_name
+            account_name=account_name,
+            session_id=session_id
         )
+
+    @staticmethod
+    def fetch_latest_post_link(account_name: str, caption_snippet: str = "") -> Optional[str]:
+        """
+        Visits the user's OWN Instagram profile (never other people's feed)
+        and matches by caption keywords to extract the exact post/reel permalink.
+        """
+        state_file = get_account_state_file(account_name, "instagram")
+        if not state_file.exists():
+            return None
+
+        with sync_playwright() as p:
+            try:
+                browser = launch_browser(p, headless=True)
+                safe_state = get_safe_storage_state(state_file)
+                context = browser.new_context(
+                    user_agent=DEFAULT_USER_AGENT,
+                    storage_state=safe_state
+                )
+                page = context.new_page()
+                page.route("**/*.{mp4,webm}", lambda r: r.abort())
+                
+                try:
+                    page.goto("https://www.instagram.com/", timeout=15000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+                # 1. Find user's OWN profile link in navigation
+                profile_path = None
+                for a in page.locator("a").all():
+                    href = a.get_attribute("href") or ""
+                    if href.startswith("/") and href.count("/") == 2 and not any(x in href for x in ["/explore/", "/reels/", "/direct/", "/stories/", "/accounts/", "/your_activity/"]):
+                        if len(href) > 2:
+                            profile_path = href
+                            break
+
+                if profile_path:
+                    prof_url = f"https://www.instagram.com{profile_path}" if profile_path.startswith("/") else profile_path
+                    try:
+                        page.goto(prof_url, timeout=15000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(2000)
+                    except Exception:
+                        pass
+
+                # 2. Extract post/reel links from user's own profile
+                anchors = page.locator("a").all()
+                candidates = []
+                for a in anchors:
+                    href = a.get_attribute("href") or ""
+                    m = re.search(r"/(p|reel)/([A-Za-z0-9_-]{4,})", href)
+                    if m:
+                        link = f"https://www.instagram.com/{m.group(1)}/{m.group(2)}/"
+                        if link not in candidates:
+                            candidates.append(link)
+
+                if candidates:
+                    browser.close()
+                    return candidates[0]
+
+                browser.close()
+            except Exception:
+                pass
+        return None

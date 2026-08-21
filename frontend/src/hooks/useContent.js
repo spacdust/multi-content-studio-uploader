@@ -7,6 +7,8 @@ import {
   deleteContentItemApi,
   initDateFolderApi,
   uploadMediaFilesApi,
+  fetchPublishProgressApi,
+  getPublishStreamUrl,
 } from '../api/contentApi';
 import { getLocalNowIso, getLocalTodayDate } from '../utils/dateUtils';
 
@@ -25,6 +27,12 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   const [editedItems, setEditedItems] = useState({});
   const [uploadingItem, setUploadingItem] = useState(null);
   const [generatingCaption, setGeneratingCaption] = useState(null);
+
+  // Interactive Real-Time Publishing Modal State
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const [publishSessionData, setPublishSessionData] = useState(null);
+  const [publishMinimized, setPublishMinimized] = useState(false);
+  const eventSourceRef = useRef(null);
 
   // Modals & Delete Action
   const [isDeleting, setIsDeleting] = useState(false);
@@ -59,14 +67,14 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       fetchedItems.forEach((item) => {
         const defaultDb = item.category === 'Video' ? '-7' : '0';
         initialEdits[item.item_key] = {
-          caption: item.caption,
-          soundMode: item.meta?.sound_mode || 'search',
+          caption: item.caption || '',
+          soundMode: item.meta?.sound_mode || 'favorite',
           soundQuery: item.meta?.sound_query ?? '',
           soundDb: item.meta?.sound_db !== undefined && item.meta?.sound_db !== null && item.meta?.sound_db !== '' ? item.meta.sound_db : defaultDb,
           scheduledTime: item.meta?.scheduled_time || '',
         };
       });
-      setEditedItems((prev) => ({ ...initialEdits, ...prev }));
+      setEditedItems(initialEdits);
       return fetchedItems;
     } catch {
       showToast('Gagal memuat antrean konten', 'error');
@@ -162,12 +170,13 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
 
   useEffect(() => {
     setSelectedItemKey(null);
+    setEditedItems({});
   }, [selectedAccount]);
 
   const selectedItem = (selectedItemKey && sortedItems.find((i) => i.item_key === selectedItemKey)) || sortedItems[0] || null;
   const currentEdit = selectedItem ? (editedItems[selectedItem.item_key] || {
     caption: selectedItem.caption,
-    soundMode: selectedItem.meta?.sound_mode || 'search',
+    soundMode: selectedItem.meta?.sound_mode || 'favorite',
     soundQuery: selectedItem.meta?.sound_query ?? '',
     soundDb: selectedItem.meta?.sound_db !== undefined && selectedItem.meta?.sound_db !== null && selectedItem.meta?.sound_db !== '' ? selectedItem.meta.sound_db : (selectedItem.category === 'Video' ? '-7' : '0'),
     scheduledTime: selectedItem.meta?.scheduled_time || '',
@@ -205,7 +214,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         date: item.date,
         item_name: item.name,
         caption: edit.caption || item.caption,
-        sound_mode: edit.soundMode || item.meta?.sound_mode || 'search',
+        sound_mode: edit.soundMode || item.meta?.sound_mode || 'favorite',
         sound_query: edit.soundQuery !== undefined ? edit.soundQuery : (item.meta?.sound_query ?? ''),
         sound_db: edit.soundDb !== undefined && edit.soundDb !== null && edit.soundDb !== '' ? edit.soundDb : itemDefaultDb,
         scheduled_time: edit.scheduledTime || null,
@@ -302,66 +311,115 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         platform: platformTarget,
         headless: false,
       });
-      if (data.status === 'started') {
-        showToast(`Browser terbuka. Otomatis memantau & memperbarui status saat upload selesai...`, 'info');
-        
-        // Polling setiap 3 detik untuk memperbarui status upload secara real-time
-        if (pollingRef.current) clearInterval(pollingRef.current);
-        const initialPlatforms = [...(item.uploaded_platforms || [])];
-        let pollCount = 0;
 
-        pollingRef.current = setInterval(async () => {
-          pollCount += 1;
+      if (data.status === 'started' && data.session_id) {
+        // Initial setup for the Publish Modal
+        const initialPlatforms = {};
+        (data.target_platforms || activePlatforms || ['tiktok']).forEach((p) => {
+          initialPlatforms[p] = {
+            status: 'pending',
+            percent: 0,
+            current_step: 'Menunggu antrean...',
+            post_url: null,
+          };
+        });
+
+        setPublishSessionData({
+          session_id: data.session_id,
+          account: item.account,
+          item_key: item.item_key,
+          item_name: item.name,
+          category: item.category,
+          status: 'running',
+          percent: 5,
+          current_step: 'Membuka antrean publish & browser visual...',
+          platforms: initialPlatforms,
+          logs: [
+            {
+              timestamp: new Date().toLocaleTimeString('id-ID', { hour12: false }),
+              platform: 'SYS',
+              message: `Memulai pipeline publish untuk '${item.name}' ke [${(data.target_platforms || []).join(', ').toUpperCase()}]`,
+              type: 'info',
+            },
+          ],
+        });
+
+        setPublishModalOpen(true);
+        setPublishMinimized(false);
+
+        // Tutup EventSource lama jika ada
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
+        }
+
+        // Buka SSE stream ke backend
+        const sseUrl = getPublishStreamUrl(data.session_id);
+        const es = new EventSource(sseUrl);
+        eventSourceRef.current = es;
+
+        es.onmessage = (e) => {
           try {
-            const res = await fetchContentApi(selectedAccount);
-            if (res?.items) {
-              setItems(res.items);
-              const updatedItem = res.items.find((i) => i.item_key === item.item_key);
-              const newPlatforms = updatedItem?.uploaded_platforms || [];
+            const parsed = JSON.parse(e.data);
+            if (parsed && parsed.session_id) {
+              setPublishSessionData(parsed);
 
-              // Cek apakah platform target telah selesai diunggah secara penuh
-              let isTargetCompleted = false;
-              if (platformTarget === 'tiktok') {
-                isTargetCompleted = newPlatforms.includes('tiktok') && (!initialPlatforms.includes('tiktok') || pollCount >= 5);
-              } else if (platformTarget === 'instagram') {
-                isTargetCompleted = (newPlatforms.includes('instagram') || newPlatforms.includes('meta')) && (!initialPlatforms.includes('instagram') || pollCount >= 5);
-              } else if (platformTarget === 'facebook') {
-                isTargetCompleted = newPlatforms.includes('facebook') && (!initialPlatforms.includes('facebook') || pollCount >= 5);
-              } else if (platformTarget === 'all') {
-                // Mode Master: Tunggu hingga SEMUA platform aktif (TikTok, Instagram, Facebook) selesai terposting
-                const hasAllActive = activePlatforms.length > 0 && activePlatforms.every((p) => {
-                  const pLower = p.toLowerCase();
-                  if (pLower === 'instagram') return newPlatforms.includes('instagram') || newPlatforms.includes('meta');
-                  return newPlatforms.includes(pLower);
-                });
-                isTargetCompleted = hasAllActive || (newPlatforms.includes('tiktok') && newPlatforms.includes('instagram') && newPlatforms.includes('facebook'));
-              }
-
-              if (isTargetCompleted) {
-                clearInterval(pollingRef.current);
-                pollingRef.current = null;
+              if (parsed.status === 'completed' || parsed.status === 'failed') {
+                es.close();
+                eventSourceRef.current = null;
                 setUploadingItem(null);
-                showToast(`✓ Berhasil! Status ${item.name} otomatis diperbarui: Terposting ke ${targetLabel}!`, 'success');
-                return;
+                fetchContent(selectedAccount);
+
+                if (parsed.status === 'completed') {
+                  showToast(`✓ Berhasil! ${item.name} berhasil terposting ke ${targetLabel}!`, 'success');
+                } else {
+                  showToast(`Upload ${item.name} mengalami kendala: ${parsed.error_msg || 'Gagal'}`, 'error');
+                }
               }
             }
-          } catch {
-            // Abaikan temporary error saat polling
+          } catch (err) {
+            console.error('Error parsing SSE publish data:', err);
           }
+        };
 
-          // Timeout aman setelah 90x polling (270 detik / 4.5 menit) agar cukup waktu untuk 3 platform berurutan
-          if (pollCount >= 90) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
-            setUploadingItem(null);
-            fetchContent();
-          }
-        }, 3000);
+        es.onerror = () => {
+          // Fallback polling jika EventSource terputus
+          if (pollingRef.current) clearInterval(pollingRef.current);
+          pollingRef.current = setInterval(async () => {
+            try {
+              const prog = await fetchPublishProgressApi(data.session_id);
+              if (prog) {
+                setPublishSessionData(prog);
+                if (prog.status === 'completed' || prog.status === 'failed') {
+                  clearInterval(pollingRef.current);
+                  pollingRef.current = null;
+                  setUploadingItem(null);
+                  fetchContent(selectedAccount);
+                }
+              }
+            } catch {
+              // Abaikan network jitter
+            }
+          }, 1500);
+        };
       }
     } catch {
       showToast('Gagal memulai proses upload', 'error');
       setUploadingItem(null);
     }
+  };
+
+  const closePublishModal = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    setPublishModalOpen(false);
+    setPublishMinimized(false);
   };
 
   // Action: Confirm Delete
@@ -509,6 +567,13 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     carouselNameInput,
     setCarouselNameInput,
     uploadingFileState,
+    publishModalOpen,
+    setPublishModalOpen,
+    publishSessionData,
+    setPublishSessionData,
+    publishMinimized,
+    setPublishMinimized,
+    closePublishModal,
     fetchContent,
     handleSaveCaption,
     handleGenerateCaption,

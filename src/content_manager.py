@@ -3,6 +3,7 @@ import json
 import time
 import re
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from rich.console import Console
@@ -23,7 +24,7 @@ from src.instagram_uploader import InstagramUploader
 from src.account_manager import AccountManager
 from src.auth_manager import AuthManager
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 class ContentManager:
     """
@@ -119,6 +120,56 @@ class ContentManager:
         return True
 
     @classmethod
+    def auto_fetch_post_links(cls, account_name: str, item_key: str, force_refresh: bool = True) -> Dict[str, str]:
+        """
+        Attempts to automatically extract the live exact post URLs from TikTok Studio,
+        Instagram Profile Feed, and Facebook Fanspage concurrently in parallel with caption matching.
+        Forces re-fetch when requested to overwrite stale or incorrect URLs.
+        """
+        history = cls.load_history(account_name)
+        hist_item = history.get(item_key, {})
+        uploaded = hist_item.get("uploaded_platforms", [])
+        post_urls = dict(hist_item.get("post_urls", {}))
+
+        # Retrieve caption for keyword matching
+        caption_snippet = ""
+        try:
+            items = cls.scan_content(account_name)
+            target = next((it for it in items if it.get("item_key") == item_key), None)
+            if target:
+                caption_snippet = target.get("caption", "") or target.get("name", "")
+        except Exception:
+            pass
+
+        tasks = {}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            if "tiktok" in uploaded and (force_refresh or not post_urls.get("tiktok")):
+                from src.tiktok_uploader import TikTokUploader
+                tasks["tiktok"] = executor.submit(TikTokUploader.fetch_latest_post_link, account_name, caption_snippet)
+
+            if "instagram" in uploaded and (force_refresh or not post_urls.get("instagram")):
+                from src.instagram_uploader import InstagramUploader
+                tasks["instagram"] = executor.submit(InstagramUploader.fetch_latest_post_link, account_name, caption_snippet)
+
+            if "facebook" in uploaded and (force_refresh or not post_urls.get("facebook")):
+                from src.facebook_uploader import FacebookUploader
+                tasks["facebook"] = executor.submit(FacebookUploader.fetch_latest_post_link, account_name, caption_snippet)
+
+            for plat, fut in tasks.items():
+                try:
+                    res_url = fut.result(timeout=14)
+                    if res_url:
+                        post_urls[plat] = res_url
+                except Exception as e:
+                    console.print(f"[yellow]{plat.capitalize()} fetch error: {e}[/yellow]")
+
+        # Save any newly discovered URLs
+        if post_urls:
+            cls.update_post_urls(account_name, item_key, post_urls)
+
+        return post_urls
+
+    @classmethod
     def read_or_generate_caption_and_meta(
         cls,
         base_file_or_dir: Path,
@@ -131,7 +182,7 @@ class ContentManager:
         caption = ""
         default_db = "-7" if category == "Video" else "0"
         meta = {
-            "sound_mode": "search",
+            "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": default_db,
             "platforms": ["tiktok", "instagram", "facebook"],
@@ -454,14 +505,22 @@ class ContentManager:
         console.print(table)
 
     @classmethod
-    def process_content_item(cls, item: Dict[str, Any], platform_filter: str = "all", headless: bool = False) -> bool:
+    def process_content_item(
+        cls,
+        item: Dict[str, Any],
+        platform_filter: str = "all",
+        headless: bool = False,
+        session_id: Optional[str] = None
+    ) -> bool:
         """Uploads a specific scanned content item based on its category and connected platforms."""
+        from src.publish_tracker import PublishTracker
+
         account = item["account"]
         category = item["category"]
         caption = item["caption"]
         meta = item["meta"]
 
-        # 1. Tentukan platform target: jika "all", deteksi platform yang sesi loginsertifikasinya aktif
+        # 1. Tentukan platform target: jika "all", deteksi platform yang sesi login sertifikasinya aktif
         if platform_filter == "all":
             target_platforms = []
             if AuthManager.is_authenticated(account, "tiktok"):
@@ -474,6 +533,28 @@ class ContentManager:
                 target_platforms = ["tiktok"]
         else:
             target_platforms = [p.strip().lower() for p in platform_filter.split(",")]
+
+        # Inisialisasi tracker sesi jika session_id tersedia
+        if session_id:
+            if not PublishTracker.get_session(session_id):
+                PublishTracker.init_session(
+                    session_id=session_id,
+                    account=account,
+                    item_key=item["item_key"],
+                    item_name=item["name"],
+                    category=category,
+                    platforms=target_platforms,
+                    date_str=item.get("date", "")
+                )
+            first_p = target_platforms[0] if target_platforms else "tiktok"
+            PublishTracker.update_step(
+                session_id=session_id,
+                platform=first_p,
+                step_name="Membuka browser visual...",
+                platform_percent=10,
+                log_message=f"Membuka browser visual untuk akun '{account}' ({', '.join(target_platforms).upper()})...",
+                log_type="info"
+            )
 
         console.print(Panel(
             f"[bold cyan]Memproses Upload:[/] [magenta]{account}[/] | [yellow]{category} ({item['date']})[/] | [white]{item['name']}[/]\n"
@@ -493,9 +574,10 @@ class ContentManager:
                     caption=caption,
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
-                    sound_mode=meta.get("sound_mode", "search"),
+                    sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
-                    sound_volume_db=meta.get("sound_db", "-7")
+                    sound_volume_db=meta.get("sound_db", "-7"),
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
@@ -508,7 +590,8 @@ class ContentManager:
                     video_path=video_path,
                     caption=caption,
                     as_reel=True,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
@@ -522,7 +605,8 @@ class ContentManager:
                     video_path=video_path,
                     caption=caption,
                     as_reel=True,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
@@ -541,9 +625,10 @@ class ContentManager:
                     title="",
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
-                    sound_mode=meta.get("sound_mode", "search"),
+                    sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
-                    category_label="Poster"
+                    category_label="Poster",
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
@@ -556,7 +641,8 @@ class ContentManager:
                     media_paths=[img_path],
                     caption=caption,
                     is_reel=False,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
@@ -570,7 +656,8 @@ class ContentManager:
                     media_paths=[img_path],
                     caption=caption,
                     is_reel=False,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
@@ -589,9 +676,10 @@ class ContentManager:
                     title="",
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
-                    sound_mode=meta.get("sound_mode", "search"),
+                    sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
-                    category_label="Carousel"
+                    category_label="Carousel",
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
@@ -604,7 +692,8 @@ class ContentManager:
                     media_paths=slides,
                     caption=caption,
                     is_reel=False,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
@@ -618,7 +707,8 @@ class ContentManager:
                     media_paths=slides,
                     caption=caption,
                     is_reel=False,
-                    account_name=account
+                    account_name=account,
+                    session_id=session_id
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)

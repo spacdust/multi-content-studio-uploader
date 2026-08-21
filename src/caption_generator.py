@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from rich.console import Console
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 # Default LLM Endpoint configurations
 DEFAULT_LLM_BASE_URL = "http://localhost:20128/v1"

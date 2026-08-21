@@ -9,10 +9,11 @@ from src.config import (
     ACCOUNTS_DIR,
     get_account_dir,
     get_account_state_file,
-    slugify_account_name
+    slugify_account_name,
+    get_safe_storage_state
 )
 
-console = Console()
+console = Console(highlight=False, legacy_windows=False)
 
 class AccountManager:
     """Manages multi-account profiles, metadata, and authentication states."""
@@ -54,7 +55,7 @@ class AccountManager:
             return accounts
 
         for acc_folder in ACCOUNTS_DIR.iterdir():
-            if acc_folder.is_dir():
+            if acc_folder.is_dir() and not acc_folder.name.startswith((".", "_")):
                 info_file = acc_folder / "account_info.json"
                 name = acc_folder.name
                 desc = ""
@@ -152,9 +153,39 @@ class AccountManager:
                                             profile_info["has_local_avatar"] = True
                                     except Exception:
                                         pass
-
                                 profile_info["followers"] = u_stats.get("followerCount", 0)
                                 profile_info["likes"] = u_stats.get("heartCount", 0)
+                    except Exception:
+                        pass
+
+                if (not profile_info.get("avatar_url") or not avatar_local.exists()) and state_file.exists():
+                    try:
+                        from playwright.sync_api import sync_playwright
+                        from src.config import DEFAULT_USER_AGENT
+                        with sync_playwright() as p:
+                            browser = p.chromium.launch(headless=True)
+                            safe_state = get_safe_storage_state(state_file)
+                            context = browser.new_context(user_agent=DEFAULT_USER_AGENT, storage_state=safe_state)
+                            page = context.new_page()
+                            page.goto("https://www.tiktok.com/tiktokstudio/upload", timeout=25000, wait_until="domcontentloaded")
+                            page.wait_for_timeout(3000)
+                            avatar_src = page.evaluate("""() => {
+                                const imgs = Array.from(document.querySelectorAll('img'));
+                                for (const img of imgs) {
+                                    if (img.src && (img.src.includes('tiktokcdn') || img.src.includes('avatar') || img.className.toLowerCase().includes('avatar'))) {
+                                        return img.src;
+                                    }
+                                }
+                                return null;
+                            }""")
+                            if avatar_src:
+                                profile_info["avatar_url"] = avatar_src
+                                img_res = requests.get(avatar_src, headers=headers, timeout=5)
+                                if img_res.status_code == 200:
+                                    with open(avatar_local, "wb") as img_f:
+                                        img_f.write(img_res.content)
+                                    profile_info["has_local_avatar"] = True
+                            browser.close()
                     except Exception:
                         pass
 

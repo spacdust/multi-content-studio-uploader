@@ -28,7 +28,7 @@ from src.validator import ContentValidator
 from src.audio_processor import AudioProcessor
 from src.config import QUEUE_DIR, AUDIO_PRESETS, get_account_content_dir
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -74,6 +74,7 @@ def main():
     proc_cont.add_argument("--item", "-i", default=None, help="Nama atau key item spesifik yang akan dipublish")
     proc_cont.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "meta", "all"], default="all", help="Target platform upload")
     proc_cont.add_argument("--headless", action="store_true", help="Jalankan di background tanpa menampilkan browser")
+    proc_cont.add_argument("--session-id", default=None, help="ID sesi publish untuk live progress tracking")
 
     # Command: caption
     caption_parser = subparsers.add_parser("caption", help="AI Caption Generator menggunakan LLM")
@@ -185,6 +186,7 @@ def handle_content(args):
         ContentManager.print_content_table(account_name=args.account)
     elif args.content_action == "process":
         item_target = getattr(args, "item", None)
+        session_id = getattr(args, "session_id", None)
         if item_target:
             all_items = ContentManager.scan_content(args.account)
             clean_target = item_target.split(" (")[0].strip()
@@ -201,7 +203,8 @@ def handle_content(args):
                 ContentManager.process_content_item(
                     item=target,
                     platform_filter=args.platform,
-                    headless=args.headless
+                    headless=args.headless,
+                    session_id=session_id
                 )
             else:
                 console.print(f"[bold yellow]Konten '{item_target}' tidak ditemukan, memproses semua pending...[/bold yellow]")

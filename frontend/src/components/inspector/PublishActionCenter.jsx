@@ -1,6 +1,7 @@
-import React from 'react';
-import { Upload, CheckCircle2, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, CheckCircle2, Clock, ExternalLink, Save, Link2, ChevronDown, ChevronUp, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import CopyLinksButton from '../feed/CopyLinksButton';
+import { updatePostLinksApi, fetchPostLinksApi } from '../../api/contentApi';
 
 export default function PublishActionCenter({
   selectedItem,
@@ -20,16 +21,219 @@ export default function PublishActionCenter({
 
   const isUploading = uploadingItem === selectedItem?.item_key;
 
+  const [showLinkEditor, setShowLinkEditor] = useState(false);
+  const [linkInputs, setLinkInputs] = useState({
+    tiktok: selectedItem?.post_urls?.tiktok || '',
+    instagram: selectedItem?.post_urls?.instagram || '',
+    facebook: selectedItem?.post_urls?.facebook || '',
+  });
+  const [savingLinks, setSavingLinks] = useState(false);
+  const [fetchingLinks, setFetchingLinks] = useState(false);
+
+  useEffect(() => {
+    setLinkInputs({
+      tiktok: selectedItem?.post_urls?.tiktok || '',
+      instagram: selectedItem?.post_urls?.instagram || '',
+      facebook: selectedItem?.post_urls?.facebook || '',
+    });
+  }, [selectedItem?.item_key, selectedItem?.post_urls]);
+
+  const handleAutoFetchLinks = async () => {
+    if (!selectedItem) return;
+    setFetchingLinks(true);
+    try {
+      const res = await fetchPostLinksApi(selectedItem.account, selectedItem.item_key);
+      if (res.post_urls && Object.keys(res.post_urls).length > 0) {
+        const updated = {
+          tiktok: res.post_urls.tiktok || '',
+          instagram: res.post_urls.instagram || '',
+          facebook: res.post_urls.facebook || '',
+        };
+        setLinkInputs(updated);
+        if (!selectedItem.post_urls) {
+          selectedItem.post_urls = {};
+        }
+        Object.assign(selectedItem.post_urls, res.post_urls);
+        if (showToast) {
+          showToast('✓ Tautan postingan live berhasil diperbarui secara otomatis!', 'success');
+        }
+      } else {
+        if (showToast) {
+          showToast('Belum ditemukan link baru di studio/profil. Silakan tempel manual jika diperlukan.', 'info');
+        }
+      }
+    } catch (err) {
+      if (showToast) {
+        showToast('Gagal mengambil link: ' + err.message, 'error');
+      }
+    } finally {
+      setFetchingLinks(false);
+    }
+  };
+
+  const handleResetLinks = async () => {
+    if (!selectedItem) return;
+    const cleared = { tiktok: '', instagram: '', facebook: '' };
+    setLinkInputs(cleared);
+    selectedItem.post_urls = cleared;
+    await updatePostLinksApi(selectedItem.account, selectedItem.item_key, cleared);
+    if (showToast) {
+      showToast('✓ Riwayat tautan berhasil dikosongkan. Klik Ambil Otomatis untuk mencari ulang.', 'info');
+    }
+  };
+
+  const handleSaveCustomLinks = async () => {
+    if (!selectedItem) return;
+    setSavingLinks(true);
+    try {
+      await updatePostLinksApi(selectedItem.account, selectedItem.item_key, linkInputs);
+      if (!selectedItem.post_urls) {
+        selectedItem.post_urls = {};
+      }
+      Object.assign(selectedItem.post_urls, linkInputs);
+      if (showToast) {
+        showToast('✓ Tautan publik postingan berhasil disimpan!', 'success');
+      }
+    } catch (err) {
+      if (showToast) {
+        showToast('Gagal menyimpan tautan: ' + err.message, 'error');
+      }
+    } finally {
+      setSavingLinks(false);
+    }
+  };
+
   return (
     <div className="pt-2 flex flex-col gap-2.5">
       {/* Copy Links Action (if already uploaded to at least 1 platform) */}
       {uploaded.length > 0 && (
-        <div className="p-3 rounded-xl bg-gradient-to-b from-zinc-900/90 to-zinc-950 border border-zinc-800/90 flex flex-col gap-2 shadow-xs">
+        <div className="p-3.5 rounded-xl bg-gradient-to-b from-zinc-900/90 to-zinc-950 border border-zinc-800/90 flex flex-col gap-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-zinc-300">📋 Tautan Publik Postingan:</span>
-            <span className="text-[9px] font-mono text-zinc-500">Cooldown 10 Menit</span>
+            <span className="text-[11px] font-semibold text-zinc-200 flex items-center gap-1.5">
+              <Link2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Tautan Publik Postingan:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowLinkEditor(!showLinkEditor)}
+              className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono flex items-center gap-1 cursor-pointer transition"
+            >
+              <span>{showLinkEditor ? 'Tutup Form' : '✏️ Sesuaikan Link'}</span>
+              {showLinkEditor ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
           </div>
-          <CopyLinksButton item={selectedItem} onToast={showToast} size="lg" />
+
+          <CopyLinksButton item={selectedItem} account={currentAccData?.name || selectedItem?.account} onToast={showToast} size="lg" />
+
+          {/* Expandable Exact Links Customizer */}
+          {showLinkEditor && (
+            <div className="pt-2.5 border-t border-zinc-800/80 flex flex-col gap-2.5">
+              {/* TikTok Link */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono text-cyan-300 font-medium">TikTok Post URL:</label>
+                  {linkInputs.tiktok && (
+                    <a
+                      href={linkInputs.tiktok}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-cyan-400 hover:underline flex items-center gap-0.5"
+                    >
+                      <ExternalLink className="w-2.5 h-2.5" /> Buka
+                    </a>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={linkInputs.tiktok}
+                  onChange={(e) => setLinkInputs({ ...linkInputs, tiktok: e.target.value })}
+                  placeholder="https://www.tiktok.com/@username/video/..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-cyan-500 font-mono placeholder:text-zinc-700"
+                />
+              </div>
+
+              {/* Instagram Link */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono text-pink-300 font-medium">Instagram Post URL:</label>
+                  {linkInputs.instagram && (
+                    <a
+                      href={linkInputs.instagram}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-pink-400 hover:underline flex items-center gap-0.5"
+                    >
+                      <ExternalLink className="w-2.5 h-2.5" /> Buka
+                    </a>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={linkInputs.instagram}
+                  onChange={(e) => setLinkInputs({ ...linkInputs, instagram: e.target.value })}
+                  placeholder="https://www.instagram.com/p/.../ atau /reel/..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-pink-500 font-mono placeholder:text-zinc-700"
+                />
+              </div>
+
+              {/* Facebook Link */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-mono text-blue-300 font-medium">Facebook Fanspage Post URL:</label>
+                  {linkInputs.facebook && (
+                    <a
+                      href={linkInputs.facebook}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-blue-400 hover:underline flex items-center gap-0.5"
+                    >
+                      <ExternalLink className="w-2.5 h-2.5" /> Buka
+                    </a>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={linkInputs.facebook}
+                  onChange={(e) => setLinkInputs({ ...linkInputs, facebook: e.target.value })}
+                  placeholder="https://www.facebook.com/.../posts/..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500 font-mono placeholder:text-zinc-700"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleAutoFetchLinks}
+                  disabled={fetchingLinks}
+                  className="py-1.5 px-2 bg-gradient-to-r from-teal-900/60 to-emerald-900/60 hover:from-teal-800/80 hover:to-emerald-800/80 text-emerald-300 border border-emerald-700/60 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition shadow-xs disabled:opacity-50"
+                  title="Deteksi dan cari ulang tautan postingan live dari profil akun Anda"
+                >
+                  <RefreshCw className={`w-3 h-3 text-emerald-400 ${fetchingLinks ? 'animate-spin' : ''}`} />
+                  <span>{fetchingLinks ? 'Mencari...' : '🔍 Cari Ulang'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveCustomLinks}
+                  disabled={savingLinks}
+                  className="py-1.5 px-2 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-750 text-zinc-200 border border-zinc-700 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition shadow-xs disabled:opacity-50"
+                >
+                  <Save className="w-3 h-3 text-emerald-400" />
+                  <span>{savingLinks ? 'Menyimpan...' : '💾 Simpan'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetLinks}
+                  className="py-1.5 px-2 bg-zinc-900/80 hover:bg-rose-950/40 text-zinc-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-800/60 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1 transition shadow-xs"
+                  title="Kosongkan tautan untuk memulai dari awal"
+                >
+                  <Trash2 className="w-3 h-3 text-rose-400" />
+                  <span>Reset</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       {/* 0. Live Publication Status Banner */}

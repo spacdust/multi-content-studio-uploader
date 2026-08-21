@@ -10,11 +10,12 @@ from src.config import (
     get_account_state_file,
     DEFAULT_USER_AGENT,
     LOGS_DIR,
-    launch_browser
+    launch_browser,
+    get_safe_storage_state
 )
 from src.validator import ContentValidator
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 class FacebookUploader:
     """
@@ -47,27 +48,78 @@ class FacebookUploader:
             except Exception:
                 pass
 
+    def handle_post_confirmation(self, page, max_wait_sec: int = 15):
+        """
+        Monitors post-submission state on Facebook.
+        If popups like 'Menyelenggarakan acara?' appear:
+        Clicks 'Terbitkan Postingan Asli' / 'Publish Original Post' to ensure the post is published.
+        """
+        console.print("[cyan]Menunggu dan memantau konfirmasi penerbitan Facebook...[/cyan]")
+        start_t = time.time()
+        while time.time() - start_t < max_wait_sec:
+            # 1. Cek tombol 'Terbitkan Postingan Asli' / 'Publish Original Post'
+            original_post_btn = page.locator(
+                "div[role='dialog'] div[role='button']:has-text('Terbitkan Postingan Asli'), "
+                "div[role='dialog'] div[aria-label='Terbitkan Postingan Asli'], "
+                "div[role='button']:has-text('Terbitkan Postingan Asli'), "
+                "button:has-text('Terbitkan Postingan Asli'), "
+                "div[role='dialog'] div[role='button']:has-text('Publish Original Post'), "
+                "div[role='dialog'] div[aria-label='Publish Original Post'], "
+                "div[role='button']:has-text('Publish Original Post'), "
+                "button:has-text('Publish Original Post'), "
+                "span:has-text('Terbitkan Postingan Asli')"
+            ).first
+            if original_post_btn.count() > 0 and original_post_btn.is_visible():
+                console.print("[bold green][OK] Terdeteksi popup event/konfirmasi Facebook. Mengklik 'Terbitkan Postingan Asli'...[/bold green]")
+                original_post_btn.click(force=True)
+                page.wait_for_timeout(3500)
+                break
+
+            # 2. Cek modal popups sekunder (Lanjutkan / Selesai / Not Now / Lain Kali)
+            for sel in [
+                "div[role='dialog'] div[role='button']:has-text('Selesai')",
+                "div[role='dialog'] div[role='button']:has-text('Done')",
+                "div[role='dialog'] div[role='button']:has-text('Not Now')",
+                "div[role='dialog'] div[role='button']:has-text('Lain Kali')"
+            ]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click(timeout=1000)
+                        page.wait_for_timeout(2000)
+                        break
+                except Exception:
+                    pass
+
+            page.wait_for_timeout(1000)
+
     def upload_media(
         self,
         media_paths: List[str | Path] | str | Path,
         caption: str = "",
         is_reel: bool = False,
-        account_name: str = "default"
+        account_name: str = "default",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Uploads media directly to Facebook Fanpage.
         """
+        from src.publish_tracker import PublishTracker
+
         if isinstance(media_paths, (str, Path)):
             media_list = [Path(media_paths).resolve()]
         else:
             media_list = [Path(p).resolve() for p in media_paths]
 
         if not media_list:
+            PublishTracker.update_step(session_id, "facebook", "Media Kosong", 0, "Tidak ada file media yang diberikan", "error", is_failed=True)
             return False, "Tidak ada file media yang diberikan untuk Facebook.", None
 
         state_file = get_account_state_file(account_name, "facebook")
         if not state_file.exists():
-            return False, f"Sesi Facebook untuk akun '{account_name}' belum ada. Silakan login terlebih dahulu.", None
+            err_msg = f"Sesi Facebook untuk akun '{account_name}' belum ada. Silakan login terlebih dahulu."
+            PublishTracker.update_step(session_id, "facebook", "Sesi Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+            return False, err_msg, None
 
         resolved_files = [str(p) for p in media_list]
         category_name = "Reels" if is_reel else ("Carousel" if len(resolved_files) > 1 else "Poster")
@@ -80,13 +132,16 @@ class FacebookUploader:
         console.print(f"Akun: [magenta]{account_name}[/magenta]")
         console.print(f"Jumlah File: [yellow]{len(resolved_files)}[/yellow]")
 
+        PublishTracker.update_step(session_id, "facebook", "Membuka browser Facebook...", 15, f"Membuka halaman Facebook untuk akun '{account_name}'", "info")
+
         with sync_playwright() as p:
             browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
+            safe_state = get_safe_storage_state(state_file)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=str(state_file)
+                storage_state=safe_state
             )
             page = context.new_page()
 
@@ -94,6 +149,7 @@ class FacebookUploader:
                 if is_reel:
                     # 1. Buka Beranda Facebook
                     console.print("[cyan]1. Membuka Beranda Facebook...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Memuat Beranda Facebook...", 25, "Memuat halaman utama Facebook", "step")
                     page.goto("https://www.facebook.com/", timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(4000)
 
@@ -122,17 +178,21 @@ class FacebookUploader:
 
                     # 3. Upload Video
                     console.print("[cyan]3. Menyuntikkan file video...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Mengunggah video ke Facebook...", 40, f"Mengunggah file video {Path(resolved_files[0]).name} ke Facebook Reel", "step")
                     file_input = page.locator("input[type='file']").first
                     if file_input.count() == 0:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, "Input file video tidak ditemukan di Facebook.", screenshot_path
+                        err_msg = "Input file video tidak ditemukan di Facebook."
+                        PublishTracker.update_step(session_id, "facebook", "Input Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
                     file_input.set_input_files([resolved_files[0]])
                     page.wait_for_timeout(5000)
 
                     # 4. Next Button 1 (Ke Edit reel)
                     console.print("[cyan]4. Melanjutkan ke Edit reel...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Konfigurasi Reel Facebook...", 55, "Melanjutkan ke konfigurasi reel", "step")
                     next_btn1 = page.locator(
                         "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
                         "div[role='dialog'] div[aria-label='Berikutnya'], "
@@ -158,6 +218,7 @@ class FacebookUploader:
                     # 6. Isi Caption di Pengaturan Reel
                     if sanitized_caption:
                         console.print("[cyan]6. Mengisi deskripsi caption Reel Facebook...[/cyan]")
+                        PublishTracker.update_step(session_id, "facebook", "Mengisi caption Reel...", 75, "Mengisi teks caption dan hashtag di Reel Facebook", "step")
                         desc_box = page.locator(
                             "div[role='main'] div[role='textbox'], "
                             "div[role='form'] div[role='textbox'], "
@@ -173,6 +234,7 @@ class FacebookUploader:
 
                     # 7. Publish / Kirim
                     console.print("[bold green]7. Mempublikasikan Reel ke Halaman Facebook...[/bold green]")
+                    PublishTracker.update_step(session_id, "facebook", "Mempublikasikan Reel...", 85, "Menekan tombol 'Kirim' / 'Posting' Reel Facebook", "step")
                     publish_btn = page.locator(
                         "div[role='button']:has-text('Kirim'), div[aria-label='Kirim'], "
                         "div[role='button']:has-text('Posting'), div[aria-label='Posting'], "
@@ -184,24 +246,36 @@ class FacebookUploader:
                     else:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, "Tombol Kirim/Posting Reel Facebook tidak ditemukan.", screenshot_path
+                        err_msg = "Tombol Kirim/Posting Reel Facebook tidak ditemukan."
+                        PublishTracker.update_step(session_id, "facebook", "Tombol Kirim Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
-                    # 8. Tunggu konfirmasi
-                    page.wait_for_timeout(10000)
+                    # 8. Tunggu konfirmasi dan tangani popup event ('Terbitkan Postingan Asli')
+                    PublishTracker.update_step(session_id, "facebook", "Menunggu konfirmasi Facebook...", 95, "Memantau konfirmasi penerbitan Facebook & popup dialog...", "step")
+                    self.handle_post_confirmation(page, max_wait_sec=15)
+                    page.wait_for_timeout(3000)
+                    try:
+                        context.storage_state(path=str(state_file))
+                    except Exception:
+                        pass
                     page.screenshot(path=screenshot_path)
                     browser.close()
+                    PublishTracker.update_step(session_id, "facebook", "Facebook Reel Berhasil Terbit!", 100, f"Facebook Reel untuk akun '{account_name}' berhasil diposting!", "success", is_completed=True, post_url=screenshot_path)
                     return True, f"Facebook Reel berhasil diposting untuk '{account_name}'.", screenshot_path
 
                 else:
                     # 1. Buka Beranda Facebook
                     console.print("[cyan]1. Membuka Facebook Feed...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Memuat Beranda Facebook...", 25, "Memuat halaman utama Facebook", "step")
                     page.goto("https://www.facebook.com/", timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(5000)
 
                     if "login" in page.url:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, f"Session Facebook untuk '{account_name}' telah kadaluarsa.", screenshot_path
+                        err_msg = f"Session Facebook untuk '{account_name}' telah kadaluarsa."
+                        PublishTracker.update_step(session_id, "facebook", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
                     self.dismiss_popups(page)
 
@@ -220,6 +294,7 @@ class FacebookUploader:
 
                     # 3. Input Files
                     console.print(f"[cyan]3. Menyuntikkan {len(resolved_files)} file media...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", f"Mengunggah {len(resolved_files)} file media...", 45, f"Mengunggah {len(resolved_files)} file {category_name} ke Facebook", "step")
                     file_input = page.locator("input[type='file']").first
                     if file_input.count() > 0:
                         file_input.set_input_files(resolved_files)
@@ -228,6 +303,7 @@ class FacebookUploader:
                     # 4. Isi Caption langsung di awal tepat di atas gambar
                     if sanitized_caption:
                         console.print("[cyan]4. Mengisi teks caption di awal di atas gambar...[/cyan]")
+                        PublishTracker.update_step(session_id, "facebook", "Mengisi caption Facebook...", 70, "Mengisi teks keterangan caption postingan Facebook", "step")
                         caption_box = page.locator(
                             "div[role='dialog'] span:has-text('Apa yang Anda pikirkan'), "
                             "div[role='dialog'] div:has-text('Apa yang Anda pikirkan'), "
@@ -256,6 +332,7 @@ class FacebookUploader:
 
                     # 6. Klik Kirim / Posting
                     console.print("[bold green]6. Mempublikasikan ke Halaman Facebook...[/bold green]")
+                    PublishTracker.update_step(session_id, "facebook", "Mempublikasikan postingan...", 85, "Menekan tombol Posting / Kirim Facebook", "step")
                     post_btn = page.locator(
                         "div[role='dialog'] div[role='button']:has-text('Kirim'), "
                         "div[role='dialog'] div[aria-label='Kirim'], "
@@ -271,11 +348,21 @@ class FacebookUploader:
                     else:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, "Tombol Posting Facebook tidak ditemukan.", screenshot_path
+                        err_msg = "Tombol Posting Facebook tidak ditemukan."
+                        PublishTracker.update_step(session_id, "facebook", "Tombol Posting Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
-                    page.wait_for_timeout(10000)
+                    # 7. Tunggu konfirmasi dan tangani popup event ('Terbitkan Postingan Asli')
+                    PublishTracker.update_step(session_id, "facebook", "Menunggu verifikasi upload...", 95, "Memantau konfirmasi penerbitan Facebook...", "step")
+                    self.handle_post_confirmation(page, max_wait_sec=15)
+                    page.wait_for_timeout(3000)
+                    try:
+                        context.storage_state(path=str(state_file))
+                    except Exception:
+                        pass
                     page.screenshot(path=screenshot_path)
                     browser.close()
+                    PublishTracker.update_step(session_id, "facebook", "Facebook Berhasil Terbit!", 100, f"{category_name} berhasil diposting ke Facebook untuk akun '{account_name}'!", "success", is_completed=True, post_url=screenshot_path)
                     return True, f"{category_name} berhasil diposting ke Facebook ({account_name}).", screenshot_path
 
             except Exception as ex:
@@ -284,7 +371,9 @@ class FacebookUploader:
                 except Exception:
                     pass
                 browser.close()
-                return False, f"Terjadi kesalahan upload Facebook: {str(ex)}", screenshot_path
+                err_msg = f"Terjadi kesalahan upload Facebook: {str(ex)}"
+                PublishTracker.update_step(session_id, "facebook", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                return False, err_msg, screenshot_path
 
     # Alias for backward compatibility
     def upload(
@@ -292,11 +381,63 @@ class FacebookUploader:
         video_path: str | Path,
         caption: str = "",
         as_reel: bool = True,
-        account_name: str = "default"
+        account_name: str = "default",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         return self.upload_media(
             media_paths=[video_path],
             caption=caption,
             is_reel=as_reel,
-            account_name=account_name
+            account_name=account_name,
+            session_id=session_id
         )
+
+    @staticmethod
+    def fetch_latest_post_link(account_name: str, caption_snippet: str = "") -> Optional[str]:
+        """
+        Visits the user's OWN Facebook Fanspage profile (never other people's feed)
+        and matches by caption keywords or grabs the newest published post/reel permalink.
+        """
+        state_file = get_account_state_file(account_name, "facebook")
+        if not state_file.exists():
+            return None
+
+        with sync_playwright() as p:
+            try:
+                browser = launch_browser(p, headless=True)
+                safe_state = get_safe_storage_state(state_file)
+                context = browser.new_context(
+                    user_agent=DEFAULT_USER_AGENT,
+                    storage_state=safe_state
+                )
+                page = context.new_page()
+                page.route("**/*.{mp4,webm}", lambda r: r.abort())
+                
+                try:
+                    page.goto("https://www.facebook.com/me", timeout=15000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                    me_url = page.url
+                    reels_url = f"{me_url}&sk=reels_tab" if "?" in me_url else f"{me_url}/reels"
+                    page.goto(reels_url, timeout=15000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+                post_anchors = page.locator("a").all()
+                candidates = []
+                for pa in post_anchors:
+                    href = pa.get_attribute("href") or ""
+                    m = re.search(r"/(reel|videos|posts)/([0-9A-Za-z_-]{4,})", href)
+                    if m:
+                        link = f"https://www.facebook.com/{m.group(1)}/{m.group(2)}/"
+                        if link not in candidates:
+                            candidates.append(link)
+
+                if candidates:
+                    browser.close()
+                    return candidates[0]
+
+                browser.close()
+            except Exception:
+                pass
+        return None

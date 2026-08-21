@@ -13,11 +13,12 @@ from src.config import (
     TIKTOK_ALT_UPLOAD_URL,
     DEFAULT_USER_AGENT,
     LOGS_DIR,
-    launch_browser
+    launch_browser,
+    get_safe_storage_state
 )
 from src.validator import ContentValidator
 
-console = Console(highlight=False)
+console = Console(highlight=False, legacy_windows=False)
 
 class TikTokUploader:
     """
@@ -35,10 +36,109 @@ class TikTokUploader:
     def __init__(self, headless: bool = False):
         self.headless = headless
 
+    @staticmethod
+    def _save_storage_state_safe(context, state_file: Path) -> bool:
+        """
+        Safely saves storage_state by MERGING rotated cookies into existing state_file,
+        preserving all authentic companion tokens (ttwid, odin_tt, store-idc, passport tokens).
+        """
+        try:
+            new_cookies = context.cookies()
+            has_session = any(
+                c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                for c in new_cookies
+            )
+            if not has_session:
+                # DO NOT OVERWRITE VALID EXISTING SESSION WITH LOGGED-OUT EMPTY STATE!
+                return False
+
+            existing_cookies_map = {}
+            if state_file.exists() and state_file.stat().st_size > 50:
+                try:
+                    with open(state_file, "r", encoding="utf-8") as f:
+                        old_state = json.load(f)
+                    for c in old_state.get("cookies", []):
+                        if c.get("name"):
+                            existing_cookies_map[c["name"]] = c
+                except Exception:
+                    pass
+
+            for c in new_cookies:
+                name = c.get("name")
+                if name:
+                    val = c.get("sameSite")
+                    if not val or not isinstance(val, str):
+                        c["sameSite"] = "None"
+                    elif "strict" in val.lower():
+                        c["sameSite"] = "Strict"
+                    elif "lax" in val.lower():
+                        c["sameSite"] = "Lax"
+                    else:
+                        c["sameSite"] = "None"
+                    existing_cookies_map[name] = c
+
+            state = {
+                "cookies": list(existing_cookies_map.values()),
+                "origins": []
+            }
+
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_file = state_file.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            tmp_file.replace(state_file)
+            return True
+        except Exception:
+            return False
+
     def dismiss_popups(self, page, target=None):
-        """Dismiss all common TikTok guide tours, cookie dialogs, and announcement modals."""
+        """Dismiss all common TikTok guide tours, coachmarks, tooltips, cookie dialogs, and announcement modals."""
         try:
             page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+        # 1. Direct DOM Removal of floating guide bubbles, coachmarks & tooltips (e.g. "New editing features added")
+        try:
+            page.evaluate("""
+                () => {
+                    const popovers = document.querySelectorAll(
+                        "div[class*='popover'], div[class*='tooltip'], div[class*='guide'], div[class*='bubble'], div[class*='coachmark'], div[class*='tour'], div[class*='hint']"
+                    );
+                    popovers.forEach(el => {
+                        try { el.click(); } catch(e){}
+                        try { el.remove(); } catch(e){}
+                    });
+
+                    document.querySelectorAll("div, p, span, h1, h2, h3, h4").forEach(el => {
+                        const txt = (el.innerText || "").toLowerCase();
+                        if (
+                            txt.includes("new editing features") ||
+                            txt.includes("editing features added") ||
+                            txt.includes("fitur pengeditan baru") ||
+                            txt.includes("manage your videos")
+                        ) {
+                            try { el.click(); } catch(e){}
+                            const container = el.closest("div[class*='container'], div[class*='wrapper'], div[class*='popover'], div[style*='position: absolute'], div[style*='position: fixed']") || el;
+                            try { container.remove(); } catch(e){}
+                        }
+                    });
+                }
+            """)
+        except Exception:
+            pass
+
+        # 2. Click-to-dismiss standard dialog buttons & onboarding tours
+        try:
+            got_it_buttons = page.locator("button, div[role='button'], a").filter(has_text=re.compile(r"^(Got it|Mengerti|OK|Selesai|I understand|Accept|Agree|Skip|Lewati|Close|Tutup)$", re.I))
+            for i in range(min(got_it_buttons.count(), 5)):
+                try:
+                    target_btn = got_it_buttons.nth(i)
+                    if target_btn.is_visible():
+                        target_btn.click(timeout=1000)
+                        page.wait_for_timeout(300)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -48,6 +148,8 @@ class TikTokUploader:
             "button:has-text('Accept')",
             "button:has-text('Setuju')",
             "button:has-text('I understand')",
+            "button:has-text('Close')",
+            "button:has-text('Tutup')",
             "div[class*='modal'] button[class*='close']",
             "div[class*='dialog'] button[class*='close']",
             "div[class*='guide-bubble'] button",
@@ -61,8 +163,8 @@ class TikTokUploader:
             try:
                 btn = page.locator(sel).first
                 if btn.count() > 0 and btn.is_visible():
-                    btn.click(timeout=1500)
-                    page.wait_for_timeout(400)
+                    btn.click(timeout=1000)
+                    page.wait_for_timeout(300)
             except Exception:
                 pass
 
@@ -70,201 +172,211 @@ class TikTokUploader:
                 try:
                     btn = target.locator(sel).first
                     if btn.count() > 0 and btn.is_visible():
-                        btn.click(timeout=1500)
-                        page.wait_for_timeout(400)
+                        btn.click(timeout=1000)
+                        page.wait_for_timeout(300)
                 except Exception:
                     pass
 
     def apply_tiktok_editor_sound(
         self,
         page,
-        sound_mode: str = "search",
+        sound_mode: str = "favorite",
         sound_query: str = "school",
-        volume_db: Optional[str] = "-7"
+        volume_db: Optional[str] = "-7",
+        session_id: Optional[str] = None
     ) -> bool:
         """
         Full workflow for TikTok Studio Video & Audio Editor:
-        1. Click button.editor-entrance[data-button-name='sounds'] under preview.
-        2. Dismiss 'Phone mode' modal.
-        3. If sound_mode == 'favorite':
-           - Click Favorites / Favorit tab with precision selectors.
-           - Pick one random favorite sound card from the list.
-        4. If sound_mode == 'search' (or favorite fallback):
-           - Fill input[placeholder*='Search sounds'], press Enter.
-           - Pick topmost sound card.
-        5. Set volume in dB (e.g. -7 dB) in input.PropSettingInput__input on the top-right Audio panel.
-        6. Click 'Save' in top right to apply and return to upload form.
+        1. Dismiss any overlay popovers / guide tooltips.
+        2. Click Sounds button under preview.
+        3. Dismiss 'Phone mode' modal.
+        4. Apply sound (Favorite / Search) and adjust volume.
+        5. Click 'Save' to apply.
         """
+        from src.publish_tracker import PublishTracker
+
         try:
             console.print(f"[bold cyan]=== MEMBUKA TIKTOK STUDIO AUDIO & SOUND EDITOR (Mode: {sound_mode.upper()}) ===[/bold cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Membuka Video Editor & Audio...", 45, f"Membuka TikTok Studio Audio & Sound Editor (Mode: {sound_mode.upper()})", "step")
             
-            # Scroll ke paling atas agar tombol editor di bawah preview terlihat
+            # Dismiss popovers and scroll top
+            self.dismiss_popups(page)
             page.evaluate("window.scrollTo(0, 0)")
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(800)
+            self.dismiss_popups(page)
 
-            # 1. Klik tombol Sounds di bawah preview video
-            console.print("[cyan]1. Mengklik tombol 'Sounds' di bawah preview video...[/cyan]")
-            sounds_btn = page.locator("button.editor-entrance[data-button-name='sounds'], button[data-button-name='sounds']").first
-            if sounds_btn.count() == 0:
-                candidate_btns = page.locator("button, div[role='button']").filter(has_text="Sounds").all()
-                for b in candidate_btns:
-                    box = b.bounding_box()
-                    if box and box["x"] > 600 and box["y"] > 200:
-                        sounds_btn = b
+            # 1. Klik tombol Sounds / Edit video di bawah preview video
+            console.print("[cyan]1. Mengklik tombol 'Sounds' / 'Edit video' di bawah preview video...[/cyan]")
+            sounds_btn = None
+            
+            for sel in [
+                "button[data-button-name='sounds']",
+                "button.editor-entrance[data-button-name='sounds']",
+                "button.editor-entrance",
+                "[data-button-name='sounds']",
+                "button:has-text('Sounds')",
+                "button:has-text('Edit video')",
+                "button:has-text('Edit')",
+                "div[role='button']:has-text('Sounds')",
+                "div:has-text('Sounds')"
+            ]:
+                try:
+                    for el in page.locator(sel).all():
+                        box = el.bounding_box()
+                        if box and box["x"] > 300 and box["width"] < 250 and box["height"] < 120:
+                            sounds_btn = el
+                            break
+                    if sounds_btn:
                         break
+                except Exception:
+                    pass
 
-            if sounds_btn.count() > 0:
+            if sounds_btn:
                 sounds_btn.scroll_into_view_if_needed()
-                sounds_btn.click()
-                page.wait_for_timeout(4500)
+                page.wait_for_timeout(400)
+                sounds_btn.click(force=True)
+                page.wait_for_timeout(5000)
             else:
-                console.print("[yellow]Tombol Sounds tidak ditemukan di bawah preview.[/yellow]")
-                return False
+                page.evaluate("""
+                    () => {
+                        const btn = document.querySelector('button[data-button-name="sounds"]') || document.querySelector('button.editor-entrance') || Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Edit video') || b.innerText.includes('Sounds'));
+                        if (btn) btn.click();
+                    }
+                """)
+                page.wait_for_timeout(5000)
 
-            # 2. Tutup popup modal 'Phone mode' / dialog di dalam editor jika muncul
+            # 2. Tutup popup overlay / modal di dalam editor
             console.print("[cyan]2. Menutup dialog petunjuk di dalam editor...[/cyan]")
-            for _ in range(3):
-                modal_btn = page.locator("button:has-text('Got it'), button:has-text('Mengerti'), button:has-text('I understand')").first
-                if modal_btn.count() > 0 and modal_btn.is_visible():
-                    modal_btn.click()
-                    page.wait_for_timeout(800)
-                self.dismiss_popups(page)
+            page.evaluate("""
+                () => {
+                    document.querySelectorAll('button, div[role="button"]').forEach(b => {
+                        const txt = b.innerText || '';
+                        if (txt.includes('Turn on') || txt.includes('Got it') || txt.includes('Next') || txt.includes('Mengerti') || txt.includes('Dismiss') || txt.includes('I understand')) {
+                            b.click();
+                        }
+                    });
+                    document.querySelectorAll('.TUXModal-overlay, .common-modal').forEach(m => m.remove());
+                }
+            """)
+            page.wait_for_timeout(1500)
+
+            # Buka panel Sounds HANYA jika belum terbuka (jangan klik jika sudah terbuka agar tidak tertutup)
+            page.evaluate("""
+                () => {
+                    const s = document.querySelector("div[data-name='MusicPanel']");
+                    const isSelected = s && s.getAttribute('data-selected') === 'true';
+                    const hasList = document.querySelectorAll("div[role='listitem']").length > 0;
+                    if (!isSelected && !hasList) {
+                        if (s) {
+                            s.click();
+                        } else {
+                            const btn = Array.from(document.querySelectorAll('div, span, button')).find(el => el.innerText && el.innerText.trim() === 'Sounds');
+                            if (btn) btn.click();
+                        }
+                    }
+                }
+            """)
+            page.wait_for_timeout(2000)
 
             # 3. Pilihan Mode: FAVORITE (RANDOM) vs SEARCH
             sound_applied = False
             if sound_mode == "favorite":
                 console.print("[cyan]3. Membuka tab 'Favorites' / 'Favorit' sound...[/cyan]")
-                fav_tab_clicked = False
                 
-                # Strategi 1: Role tab dengan regex nama favorit
-                try:
-                    for rt in page.locator("[role='tab']").all():
-                        txt = rt.inner_text().strip()
-                        if re.search(r"favorit|favorite|disimpan", txt, re.I):
-                            rt.scroll_into_view_if_needed()
-                            rt.click(force=True)
-                            fav_tab_clicked = True
-                            console.print(f"[green]✓ Tab Favorites ditemukan via role=tab ('{txt}') dan berhasil diklik![/green]")
-                            break
-                except Exception:
-                    pass
-
-                # Strategi 2: Text matching pada tombol/div tab spesifik di area drawer kiri
-                if not fav_tab_clicked:
-                    for tag in ["button", "span", "div", "p"]:
-                        try:
-                            matches = page.locator(tag).filter(has_text=re.compile(r"^(Favorites|Favorit|Favorite|Disimpan)$", re.I)).all()
-                            for m in matches:
-                                box = m.bounding_box()
-                                if box and box["x"] < 400 and box["y"] < 250 and box["width"] < 200 and box["height"] < 60:
-                                    m.scroll_into_view_if_needed()
-                                    m.click(force=True)
-                                    fav_tab_clicked = True
-                                    console.print(f"[green]✓ Tab Favorites ditemukan via text '{tag}' di ({box['x']:.0f}, {box['y']:.0f}) dan berhasil diklik![/green]")
-                                    break
-                            if fav_tab_clicked:
-                                break
-                        except Exception:
-                            pass
-
-                # Strategi 3: Filter elemen yang memuat 'favorit' di koordinat tab atas drawer
-                if not fav_tab_clicked:
-                    try:
-                        candidate_elements = page.locator("div, span, button").filter(has_text=re.compile(r"favorit", re.I)).all()
-                        for elem in candidate_elements:
-                            box = elem.bounding_box()
-                            if box and box["x"] < 400 and box["y"] < 250 and box["width"] < 200 and box["height"] < 60:
-                                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-                                fav_tab_clicked = True
-                                console.print(f"[green]✓ Tab Favorites diklik via koordinat mouse ({box['x'] + box['width']/2:.0f}, {box['y'] + box['height']/2:.0f})![/green]")
-                                break
-                    except Exception:
-                        pass
-
+                # Klik tab Favorites jika belum aktif
+                page.evaluate("""
+                    () => {
+                        const fav = Array.from(document.querySelectorAll('div, span, button, [role="tab"]')).find(el => el.innerText && (el.innerText.trim() === 'Favorites' || el.innerText.trim() === 'Favorit' || el.innerText.trim() === 'Disimpan'));
+                        if (fav) {
+                            const isSelected = fav.getAttribute('aria-selected') === 'true' || fav.getAttribute('data-selected') === 'true';
+                            if (!isSelected) {
+                                fav.click();
+                            }
+                        }
+                    }
+                """)
                 page.wait_for_timeout(3500)
 
-                # Cari semua item lagu yang muncul di tab Favorites
-                console.print("[cyan]Mendeteksi daftar lagu di tab Favorites...[/cyan]")
-                sound_cards = []
-                
-                # Cek elemen sound card di panel kiri
-                candidates = page.locator("div[class*='item'], div[class*='Item'], div[class*='card'], div[class*='Card'], div:has(> img)").all()
-                for c in candidates:
-                    try:
-                        box = c.bounding_box()
-                        if box and box["x"] >= 10 and box["x"] < 450 and box["y"] >= 120 and box["y"] < 800 and box["height"] >= 35 and box["height"] <= 90 and box["width"] >= 180:
-                            sound_cards.append(box)
-                    except Exception:
-                        pass
+                # Deteksi tombol '+' bulat merah resmi: button.Button__root--shape-rounded.Button__root--type-primary
+                console.print("[cyan]Mendeteksi tombol '+' bulat merah resmi pada daftar lagu favorit...[/cyan]")
+                add_buttons = page.locator("button.Button__root--shape-rounded.Button__root--type-primary, button[data-shape='rounded'][data-icon-only='true'], button.Button__root--type-primary[data-icon-only='true'], div[role='listitem'] button[class*='type-primary']").all()
 
-                # Fallback pencarian dengan durasi
-                if not sound_cards:
-                    duration_elems = page.locator("div, span, p").filter(has_text=re.compile(r"0[0-9]:[0-5][0-9]")).all()
-                    for de in duration_elems:
-                        try:
-                            box = de.bounding_box()
-                            if box and box["x"] >= 10 and box["x"] < 450 and box["y"] >= 120 and box["y"] < 800:
-                                sound_cards.append(box)
-                        except Exception:
-                            pass
-
-                if sound_cards:
-                    chosen_box = random.choice(sound_cards)
-                    hover_x = chosen_box["x"] + chosen_box["width"] / 2
-                    hover_y = chosen_box["y"] + chosen_box["height"] / 2
-                    page.mouse.move(hover_x, hover_y)
+                if add_buttons:
+                    chosen = random.choice(add_buttons)
+                    box = chosen.bounding_box()
+                    coord_str = f"di ({box['x']:.0f}, {box['y']:.0f})" if box else ""
+                    console.print(f"[bold green][OK] Berhasil memilih secara acak 1 dari {len(add_buttons)} lagu favorit. Mengklik tombol '+' {coord_str}...[/bold green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Memilih sound favorit...", 60, f"Memilih secara acak 1 dari {len(add_buttons)} lagu favorit via tombol '+' bulat merah", "step")
+                    chosen.scroll_into_view_if_needed()
                     page.wait_for_timeout(400)
-
-                    target_x = chosen_box["x"] + chosen_box["width"] - 22
-                    target_y = chosen_box["y"] + (chosen_box["height"] / 2)
-                    console.print(f"[bold green]✓ Berhasil memilih 1 sound favorit secara acak (dari {len(sound_cards)} lagu). Mengklik tombol '+' di ({target_x:.0f}, {target_y:.0f})...[/bold green]")
-                    page.mouse.click(target_x, target_y)
+                    chosen.click(force=True)
                     page.wait_for_timeout(4000)
                     sound_applied = True
                 else:
-                    console.print("[yellow]Tab Favorites belum memiliki daftar lagu atau akun belum menyimpan sound favorit di TikTok. Melakukan fallback ke pencarian sound...[/yellow]")
-                    sound_mode = "search"
+                    # Fallback via JS click
+                    clicked_js = page.evaluate("""
+                        () => {
+                            const btns = Array.from(document.querySelectorAll('button')).filter(b => b.className && b.className.includes('Button__root--shape-rounded') && b.className.includes('Button__root--type-primary'));
+                            if (btns.length > 0) {
+                                const idx = Math.floor(Math.random() * btns.length);
+                                btns[idx].click();
+                                return true;
+                            }
+                            return false;
+                        }
+                    """)
+                    if clicked_js:
+                        console.print("[bold green][OK] Berhasil mengklik tombol '+' sound favorit via JS selector![/bold green]")
+                        PublishTracker.update_step(session_id, "tiktok", "Memilih sound favorit...", 60, "Mengklik tombol '+' sound favorit via selector", "step")
+                        page.wait_for_timeout(4000)
+                        sound_applied = True
+                    else:
+                        console.print("[yellow]Tab Favorites belum memiliki daftar lagu atau akun belum menyimpan sound favorit di TikTok. Melakukan fallback ke pencarian sound...[/yellow]")
+                        PublishTracker.log(session_id, "tiktok", "Lagu favorit belum tersimpan di akun TikTok. Melakukan fallback ke pencarian sound...", "warn")
+                        sound_mode = "search"
 
             if not sound_applied: # sound_mode == "search"
-                # Cari sound di kolom 'Search sounds'
-                console.print(f"[cyan]3. Mencari sound TikTok dengan query: [yellow]'{sound_query}'[/yellow]...[/cyan]")
-                search_box = page.locator("input[placeholder*='Search sounds'], input[placeholder*='search sounds'], input[placeholder*='Cari sound']").first
-                if search_box.count() > 0:
-                    search_box.click(force=True)
-                    search_box.fill(sound_query)
-                    page.keyboard.press("Enter")
-                    page.wait_for_timeout(3000)
+                # Cari sound di kolom 'Search sounds' jika query diberikan
+                query_to_use = sound_query.strip() if sound_query else ""
+                if query_to_use:
+                    console.print(f"[cyan]3. Mencari sound TikTok dengan query: [yellow]'{query_to_use}'[/yellow]...[/cyan]")
+                    PublishTracker.update_step(session_id, "tiktok", f"Mencari sound '{query_to_use}'...", 55, f"Mencari audio TikTok dengan kata kunci '{query_to_use}'", "step")
+                    search_box = page.locator("input[placeholder*='Search sounds'], input[placeholder*='search sounds'], input[placeholder*='Cari sound']").first
+                    if search_box.count() > 0:
+                        search_box.click(force=True)
+                        search_box.fill(query_to_use)
+                        page.keyboard.press("Enter")
+                        page.wait_for_timeout(3000)
 
-                # Filter dan urutkan card lagu individual
-                console.print("[cyan]4. Mengklik tombol '+' pada sound paling atas...[/cyan]")
-                candidates = page.locator("div:has(> img), div:has-text('00:'), div:has-text('01:'), div:has-text('02:')").all()
-                valid_items = []
-                for c in candidates:
-                    try:
-                        box = c.bounding_box()
-                        if box and box["x"] >= 10 and box["x"] < 450 and box["y"] >= 150 and box["height"] >= 35 and box["height"] <= 90 and box["width"] >= 180:
-                            valid_items.append(box)
-                    except Exception:
-                        pass
+                # Filter dan klik tombol '+' merah pada hasil pencarian teratas
+                console.print("[cyan]4. Mengklik tombol '+' merah pada sound teratas...[/cyan]")
+                add_buttons = page.locator("button.Button__root--shape-rounded.Button__root--type-primary, button[data-shape='rounded'][data-icon-only='true'], button.Button__root--type-primary[data-icon-only='true'], div[role='listitem'] button[class*='type-primary']").all()
 
-                if valid_items:
-                    valid_items.sort(key=lambda b: b["y"])
-                    top_box = valid_items[0]
-                    target_x = top_box["x"] + top_box["width"] - 22
-                    target_y = top_box["y"] + (top_box["height"] / 2)
-                    console.print(f"[green]✓ Sound teratas ditemukan (Y={top_box['y']:.1f}). Mengklik '+' di ({target_x:.1f}, {target_y:.1f})...[/green]")
-                    page.mouse.move(target_x, target_y)
-                    page.wait_for_timeout(300)
-                    page.mouse.click(target_x, target_y)
+                if add_buttons:
+                    top_btn = add_buttons[0]
+                    box = top_btn.bounding_box()
+                    coord_str = f"di ({box['x']:.0f}, {box['y']:.0f})" if box else ""
+                    console.print(f"[green][OK] Tombol '+' sound teratas ditemukan {coord_str}. Mengklik...[/green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Memasang sound pencarian...", 60, "Mengklik tombol '+' pada sound pencarian teratas", "step")
+                    top_btn.scroll_into_view_if_needed()
+                    page.wait_for_timeout(400)
+                    top_btn.click(force=True)
                     page.wait_for_timeout(4000)
                 else:
-                    console.print("[yellow]Fallback click tombol '+'...[/yellow]")
-                    page.mouse.click(270, 230)
+                    page.evaluate("""
+                        () => {
+                            const btns = Array.from(document.querySelectorAll('button')).filter(b => b.className && b.className.includes('Button__root--shape-rounded') && b.className.includes('Button__root--type-primary'));
+                            if (btns.length > 0) {
+                                btns[0].click();
+                            }
+                        }
+                    """)
                     page.wait_for_timeout(4000)
 
             # 5. Atur volume di panel Audio kanan atas menggunakan input resmi 'input.PropSettingInput__input'
             if volume_db:
                 console.print(f"[cyan]5. Mengatur volume sound menjadi [yellow]{volume_db} dB[/yellow] di panel Audio kanan atas...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Mengatur volume suara...", 70, f"Mengatur volume audio latar belakang menjadi {volume_db} dB", "step")
                 vol_input = page.locator("input.PropSettingInput__input").first
                 if vol_input.count() > 0:
                     vol_input.click()
@@ -274,16 +386,20 @@ class TikTokUploader:
                     vol_input.fill(str(volume_db))
                     page.keyboard.press("Enter")
                     page.wait_for_timeout(800)
-                    console.print(f"[green]✓ Input volume berhasil diisi {volume_db} dB![/green]")
+                    console.print(f"[green][OK] Input volume berhasil diisi {volume_db} dB![/green]")
 
             # 6. Klik tombol 'Save' di kanan atas untuk menyimpan dan kembali ke upload
             console.print("[cyan]6. Menyimpan hasil edit (Klik tombol 'Save' di kanan atas)...[/cyan]")
-            save_btn = page.locator("button:has-text('Save'), button:has-text('Simpan')").first
-            if save_btn.count() > 0 and save_btn.is_visible():
-                save_btn.click()
-                page.wait_for_timeout(5000)
+            PublishTracker.update_step(session_id, "tiktok", "Menyimpan video editor...", 75, "Menyimpan hasil konfigurasi audio dan kembali ke form postingan", "step")
+            page.evaluate("""
+                () => {
+                    const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && (b.innerText.trim() === 'Save' || b.innerText.trim() === 'Simpan'));
+                    if (btn) btn.click();
+                }
+            """)
+            page.wait_for_timeout(6000)
 
-            console.print("[bold green]✓ Sound TikTok resmi berhasil dipilih, diatur volumenya, dan disimpan![/bold green]")
+            console.print("[bold green][OK] Sound TikTok resmi berhasil dipilih, diatur volumenya, dan disimpan![/bold green]")
             return True
 
         except Exception as ex:
@@ -296,22 +412,28 @@ class TikTokUploader:
         caption: str = "",
         as_draft: bool = False,
         account_name: str = "default",
-        sound_mode: str = "search",
+        sound_mode: str = "favorite",
         tiktok_sound_query: Optional[str] = None,
         sound_volume_db: Optional[str] = "-7",
-        schedule_time: Optional[str] = None
+        schedule_time: Optional[str] = None,
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Uploads a video to TikTok with full maximized browser, sound search/favorite & volume tuning.
         """
+        from src.publish_tracker import PublishTracker
+
         path = Path(video_path).resolve()
         valid, err = ContentValidator.validate_video_file(path)
         if not valid:
+            PublishTracker.update_step(session_id, "tiktok", "Validasi Gagal", 0, err or "Invalid video", "error", is_failed=True, error_msg=err)
             return False, err or "Invalid video", None
 
         state_file = get_account_state_file(account_name, "tiktok")
         if not state_file.exists():
-            return False, f"Sesi login TikTok untuk akun '{account_name}' belum ada. Silakan jalankan login terlebih dahulu.", None
+            err_msg = f"Sesi login TikTok untuk akun '{account_name}' belum ada. Silakan jalankan login terlebih dahulu."
+            PublishTracker.update_step(session_id, "tiktok", "Sesi Tidak Ditemukan", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+            return False, err_msg, None
 
         sanitized_caption = ContentValidator.sanitize_caption(caption, platform="tiktok")
         timestamp = int(time.time())
@@ -324,19 +446,23 @@ class TikTokUploader:
         console.print(f"Caption: [italic]{sanitized_caption}[/italic]")
         console.print(f"Sound Mode: [cyan]{sound_mode.upper()}[/cyan] (Query: {tiktok_sound_query}, Volume: {sound_volume_db} dB)")
 
+        PublishTracker.update_step(session_id, "tiktok", "Membuka browser TikTok...", 10, f"Membuka browser visual untuk akun '{account_name}'", "info")
+
         with sync_playwright() as p:
             browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
+            safe_state = get_safe_storage_state(state_file)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=str(state_file)
+                storage_state=safe_state
             )
             page = context.new_page()
 
             try:
                 # 1. Buka halaman upload TikTok
                 console.print("[cyan]1. Membuka halaman Creator Upload TikTok...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Memuat halaman TikTok Studio...", 20, "Memuat halaman Creator Upload TikTok Studio", "step")
                 page.goto(TIKTOK_UPLOAD_URL, timeout=45000, wait_until="domcontentloaded")
                 page.wait_for_timeout(5000)
 
@@ -344,10 +470,26 @@ class TikTokUploader:
                 if "login" in page.url:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, f"Session TikTok untuk '{account_name}' telah kadaluarsa. Silakan login ulang.", screenshot_path
+                    err_msg = f"Session TikTok untuk '{account_name}' telah kadaluarsa. Silakan login ulang."
+                    PublishTracker.update_step(session_id, "tiktok", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 # Bersihkan popup awal (tour guide, Got it, cookie, dsb)
                 self.dismiss_popups(page)
+
+                # Jika TikTok redirect ke halaman onboarding tour (misal /tiktokstudio/sound atau /home)
+                if "tiktokstudio/upload" not in page.url or page.locator("input[type='file']").count() == 0:
+                    upload_sidebar_btn = page.locator("button, a").filter(has_text=re.compile(r"^\+?\s*Upload$", re.I)).first
+                    if upload_sidebar_btn.count() > 0 and upload_sidebar_btn.is_visible():
+                        try:
+                            upload_sidebar_btn.click()
+                            page.wait_for_timeout(3000)
+                        except Exception:
+                            pass
+                    if "tiktokstudio/upload" not in page.url:
+                        page.goto(TIKTOK_UPLOAD_URL, timeout=35000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(3500)
+                    self.dismiss_popups(page)
 
                 # 2. Cari input file video
                 console.print("[cyan]2. Memilih file video...[/cyan]")
@@ -361,10 +503,13 @@ class TikTokUploader:
                 if file_input.count() == 0:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, "Form input file upload tidak ditemukan di halaman TikTok.", screenshot_path
+                    err_msg = "Form input file upload tidak ditemukan di halaman TikTok."
+                    PublishTracker.update_step(session_id, "tiktok", "Input File Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 # 3. Masukkan file video
                 console.print(f"[yellow]Mengunggah file {path.name}...[/yellow]")
+                PublishTracker.update_step(session_id, "tiktok", f"Mengunggah file {path.name}...", 35, f"Mengunggah file media {path.name} ke TikTok Studio", "step")
                 file_input.set_input_files(str(path))
                 page.wait_for_timeout(6000)
 
@@ -372,18 +517,20 @@ class TikTokUploader:
                 self.dismiss_popups(page)
 
                 # 4. Alur TikTok Studio Editor: Sound Search/Favorite & Pengaturan Volume
-                if sound_mode == "favorite" or tiktok_sound_query:
-                    self.apply_tiktok_editor_sound(
-                        page=page,
-                        sound_mode=sound_mode,
-                        sound_query=tiktok_sound_query or "school",
-                        volume_db=sound_volume_db
-                    )
-                    self.dismiss_popups(page)
+                console.print(f"[cyan]4. Membuka Audio Editor untuk memasang Sound TikTok (Mode: {sound_mode.upper()})...[/cyan]")
+                self.apply_tiktok_editor_sound(
+                    page=page,
+                    sound_mode=sound_mode or "search",
+                    sound_query=tiktok_sound_query or "",
+                    volume_db=sound_volume_db or "-7",
+                    session_id=session_id
+                )
+                self.dismiss_popups(page)
 
                 # 5. Input Caption & Hashtags
                 if sanitized_caption:
                     console.print("[cyan]Mengisi caption dan hashtag...[/cyan]")
+                    PublishTracker.update_step(session_id, "tiktok", "Mengisi caption & hashtag...", 80, "Mengisi teks caption dan hashtag terverifikasi", "step")
                     page.evaluate("window.scrollTo(0, 0)")
                     page.wait_for_timeout(500)
                     
@@ -409,14 +556,18 @@ class TikTokUploader:
 
                 # 6. Scroll ke bawah dan tunggu pemrosesan video selesai
                 console.print("[cyan]Menunggu pemrosesan video di TikTok...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Finalisasi pemrosesan video...", 85, "Menunggu pemrosesan server TikTok Studio selesai", "step")
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(3000)
+                self.dismiss_popups(page)
+                page.wait_for_timeout(3000)
 
-                # 7. Klik Post / Save Draft dengan selector presisi (bukan sidebar)
+                # 7. Klik Post / Save Draft dengan selector presisi (bukan sidebar dan bukan Save draft jika mode post)
                 if as_draft:
                     console.print("[cyan]Menyimpan sebagai Draf...[/cyan]")
+                    PublishTracker.update_step(session_id, "tiktok", "Menyimpan sebagai Draf...", 90, "Menyimpan video sebagai Draf di TikTok Studio", "step")
                     draft_btn = page.locator(
-                        "button.Button__root:text-is('Save draft'), button:text-is('Save draft'), button:text-is('Simpan draf')"
+                        "button:text-is('Save draft'), button:text-is('Simpan draf')"
                     ).first
                     if draft_btn.count() > 0:
                         draft_btn.scroll_into_view_if_needed()
@@ -428,20 +579,21 @@ class TikTokUploader:
                         return False, "Tombol 'Save Draft' tidak ditemukan.", screenshot_path
                 else:
                     console.print(f"[bold green]Memposting Video ke TikTok Akun: [{account_name}]...[/bold green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Mempublikasikan postingan...", 90, "Menekan tombol 'Post' / 'Posting' resmi di TikTok Studio", "step")
                     
-                    # Targetkan tombol Post merah resmi (class Button__root--type-primary, bukan menu sidebar Posts)
+                    # Targetkan tombol Post merah resmi
+                    clicked_post = False
                     post_candidates = page.locator(
                         "button.Button__root--type-primary, button[data-e2e='upload_post_btn'], button:text-is('Post'), button:text-is('Posting'), button:text-is('Unggah')"
                     ).all()
 
-                    clicked_post = False
                     for btn in post_candidates:
                         try:
                             box = btn.bounding_box()
                             text = (btn.text_content() or "").strip()
-                            # Pastikan bukan sidebar (x > 250) dan teks tepat 'Post' / 'Posting' (bukan 'Posts')
-                            if box and box["x"] > 250 and text in ["Post", "Posting", "Unggah"]:
-                                console.print(f"[bold green]Mengklik tombol Post resmi di ({box['x']}, {box['y']})...[/bold green]")
+                            # Pastikan bukan sidebar (x > 250), bukan Save draft, dan teks tepat 'Post' / 'Posting'
+                            if box and box["x"] > 250 and "draft" not in text.lower() and text in ["Post", "Posting", "Unggah"]:
+                                console.print(f"[bold green]Mengklik tombol Post resmi di ({box['x']:.0f}, {box['y']:.0f})...[/bold green]")
                                 btn.scroll_into_view_if_needed()
                                 page.wait_for_timeout(1000)
                                 btn.click(force=True)
@@ -451,26 +603,36 @@ class TikTokUploader:
                             pass
 
                     if not clicked_post:
-                        # Fallback jika selector spesifik tidak kena
-                        fallback_post = page.locator("button.Button__root--type-primary").first
-                        if fallback_post.count() > 0:
-                            fallback_post.scroll_into_view_if_needed()
-                            page.wait_for_timeout(1000)
-                            fallback_post.click(force=True)
-                            clicked_post = True
+                        for btn in post_candidates:
+                            text = (btn.text_content() or "").strip()
+                            if "draft" not in text.lower() and ("post" in text.lower() or "posting" in text.lower() or "unggah" in text.lower()):
+                                btn.scroll_into_view_if_needed()
+                                page.wait_for_timeout(1000)
+                                btn.click(force=True)
+                                clicked_post = True
+                                break
 
                     if not clicked_post:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, "Tombol 'Post' utama tidak ditemukan.", screenshot_path
+                        err_msg = "Tombol 'Post' utama tidak ditemukan."
+                        PublishTracker.update_step(session_id, "tiktok", "Tombol Post Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
                 # 8. Tunggu konfirmasi akhir upload
                 console.print("[cyan]Menunggu konfirmasi upload selesai...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 95, "Menunggu konfirmasi penerbitan TikTok Studio...", "step")
                 page.wait_for_timeout(10000)
+
+                try:
+                    self._save_storage_state_safe(context, state_file)
+                except Exception:
+                    pass
 
                 page.screenshot(path=screenshot_path)
                 browser.close()
-                console.print(f"[bold green]✓ Video TikTok untuk [{account_name}] berhasil diposting! Bukti: {screenshot_path}[/bold green]")
+                console.print(f"[bold green][OK] Video TikTok untuk [{account_name}] berhasil diposting! Bukti: {screenshot_path}[/bold green]")
+                PublishTracker.update_step(session_id, "tiktok", "TikTok Berhasil Terbit!", 100, f"Video TikTok berhasil diterbitkan untuk akun '{account_name}'!", "success", is_completed=True, post_url=screenshot_path)
                 return True, f"Video berhasil diupload ke TikTok ({account_name}).", screenshot_path
 
             except Exception as ex:
@@ -479,13 +641,81 @@ class TikTokUploader:
                 except Exception:
                     pass
                 browser.close()
-                return False, f"Terjadi kesalahan saat upload TikTok: {str(ex)}", screenshot_path
+                err_msg = f"Terjadi kesalahan saat upload TikTok: {str(ex)}"
+                PublishTracker.update_step(session_id, "tiktok", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                return False, err_msg, screenshot_path
+
+    @staticmethod
+    def fetch_latest_post_link(account_name: str, caption_snippet: str = "") -> Optional[str]:
+        """
+        Visits TikTok Studio Content Manager or user profile in fast headless browser
+        to grab the exact live post permalink.
+        """
+        state_file = get_account_state_file(account_name, "tiktok")
+        if not state_file.exists():
+            return None
+
+        with sync_playwright() as p:
+            try:
+                browser = launch_browser(p, headless=True)
+                context = browser.new_context(
+                    user_agent=DEFAULT_USER_AGENT,
+                    storage_state=str(state_file)
+                )
+                page = context.new_page()
+                # Fast route abort for heavy media
+                page.route("**/*.{png,jpg,jpeg,webp,gif,mp4,woff,woff2,ttf}", lambda r: r.abort())
+                
+                try:
+                    page.goto("https://www.tiktok.com/tiktokstudio/content", timeout=12000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(1200)
+
+                    for sel in [
+                        "a[href*='/video/']",
+                        "a[href*='/photo/']",
+                        "div[data-tt='post_card'] a",
+                        "tbody tr a[href*='tiktok.com']"
+                    ]:
+                        try:
+                            elem = page.locator(sel).first
+                            if elem.count() > 0:
+                                href = elem.get_attribute("href")
+                                if href and ("/video/" in href or "/photo/" in href):
+                                    browser.close()
+                                    return href if href.startswith("http") else f"https://www.tiktok.com{href}"
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                from src.account_manager import AccountManager
+                profile = AccountManager.get_tiktok_profile(account_name)
+                username = profile.get("unique_id") or profile.get("username")
+                if username:
+                    clean_u = username if username.startswith("@") else f"@{username}"
+                    try:
+                        page.goto(f"https://www.tiktok.com/{clean_u}", timeout=10000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(1000)
+                        elem = page.locator("a[href*='/video/'], a[href*='/photo/']").first
+                        if elem.count() > 0:
+                            href = elem.get_attribute("href") or ""
+                            if href and ("/video/" in href or "/photo/" in href):
+                                browser.close()
+                                return href if href.startswith("http") else f"https://www.tiktok.com{href}"
+                    except Exception:
+                        pass
+
+                browser.close()
+            except Exception:
+                pass
+        return None
 
     def apply_tiktok_photo_sound(
         self,
         page,
-        sound_mode: str = "search",
+        sound_mode: str = "favorite",
         sound_query: str = "school",
+        session_id: Optional[str] = None
     ) -> bool:
         """
         Attaches a TikTok sound to Photo / Carousel post directly from '+ Add sound' button below description.
@@ -498,8 +728,11 @@ class TikTokUploader:
            - Fill search input with sound_query and press Enter.
            - Click the topmost 'Use' / 'Gunakan' button.
         """
+        from src.publish_tracker import PublishTracker
+
         try:
             console.print(f"[bold cyan]=== MEMILIH SOUND TIKTOK UNTUK POSTER/CAROUSEL (Mode: {sound_mode.upper()}) ===[/bold cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Membuka modal sound...", 60, f"Membuka dialog '+ Add sound' (Mode: {sound_mode.upper()})", "step")
             
             # 1. Klik tombol '+ Add sound' di bawah deskripsi
             console.print("[cyan]1. Mengklik tombol '+ Add sound'...[/cyan]")
@@ -509,6 +742,7 @@ class TikTokUploader:
 
             if add_sound_btn.count() == 0 or not add_sound_btn.is_visible():
                 console.print("[yellow]Tombol '+ Add sound' tidak ditemukan di bawah deskripsi.[/yellow]")
+                PublishTracker.log(session_id, "tiktok", "Tombol '+ Add sound' tidak ditemukan di bawah deskripsi", "warn")
                 return False
 
             add_sound_btn.scroll_into_view_if_needed()
@@ -519,6 +753,7 @@ class TikTokUploader:
             sound_applied = False
             if sound_mode == "favorite":
                 console.print("[cyan]2. Membuka tab 'Favorites' di modal sound...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Membuka tab Favorites...", 65, "Membuka tab Favorites di modal sound TikTok", "step")
                 fav_tab_clicked = False
                 
                 try:
@@ -526,7 +761,7 @@ class TikTokUploader:
                     if fav_tab.count() > 0 and fav_tab.is_visible():
                         fav_tab.click()
                         fav_tab_clicked = True
-                        console.print("[green]✓ Tab Favorites berhasil diklik![/green]")
+                        console.print("[green][OK] Tab Favorites berhasil diklik![/green]")
                 except Exception:
                     pass
 
@@ -543,16 +778,19 @@ class TikTokUploader:
                 use_buttons = page.locator("button:has-text('Use'), div[role='button']:has-text('Use'), button:has-text('Gunakan')").all()
                 if use_buttons:
                     chosen_btn = random.choice(use_buttons)
-                    console.print(f"[bold green]✓ Memilih secara acak 1 dari {len(use_buttons)} sound favorit. Mengklik tombol 'Use'...[/bold green]")
+                    console.print(f"[bold green][OK] Memilih secara acak 1 dari {len(use_buttons)} sound favorit. Mengklik tombol 'Use'...[/bold green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Memasang sound favorit...", 75, f"Memilih secara acak 1 dari {len(use_buttons)} lagu favorit via tombol 'Use'", "step")
                     chosen_btn.click()
                     page.wait_for_timeout(3000)
                     sound_applied = True
                 else:
                     console.print("[yellow]Tab Favorites belum memiliki sound atau kosong. Melakukan fallback ke pencarian sound...[/yellow]")
+                    PublishTracker.log(session_id, "tiktok", "Tab Favorites kosong. Fallback ke pencarian sound...", "warn")
                     sound_mode = "search"
 
             if not sound_applied: # sound_mode == "search"
                 console.print(f"[cyan]2. Mencari sound TikTok dengan query: [yellow]'{sound_query}'[/yellow]...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", f"Mencari sound '{sound_query}'...", 65, f"Mencari audio TikTok dengan kata kunci '{sound_query}'", "step")
                 search_box = page.locator("input[placeholder*='Search sounds'], input[placeholder*='search sounds'], input[placeholder*='Cari sound']").first
                 if search_box.count() > 0:
                     search_box.click(force=True)
@@ -562,19 +800,73 @@ class TikTokUploader:
 
                 use_buttons = page.locator("button:has-text('Use'), div[role='button']:has-text('Use'), button:has-text('Gunakan')").all()
                 if use_buttons:
-                    console.print("[green]✓ Sound teratas ditemukan. Mengklik tombol 'Use'...[/green]")
+                    console.print("[green][OK] Sound teratas ditemukan. Mengklik tombol 'Use'...[/green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Memasang sound...", 75, "Mengklik tombol 'Use' pada sound pencarian teratas", "step")
                     use_buttons[0].click()
                     page.wait_for_timeout(3000)
                     sound_applied = True
                 else:
                     console.print("[yellow]Tombol 'Use' tidak ditemukan di hasil pencarian sound.[/yellow]")
 
-            console.print("[bold green]✓ Sound TikTok untuk Poster/Carousel berhasil dipilih dan diterapkan![/bold green]")
+            console.print("[bold green][OK] Sound TikTok untuk Poster/Carousel berhasil dipilih dan diterapkan![/bold green]")
             return sound_applied
 
         except Exception as ex:
             console.print(f"[bold yellow]Peringatan saat konfigurasi Sound Foto/Carousel: {ex}[/bold yellow]")
             return False
+
+    def ensure_photos_tab_active(self, page, max_wait_sec=15) -> bool:
+        """Ensures that TikTok Studio is cleanly in 'Photos' mode (tab=photo)."""
+        start = time.time()
+        while time.time() - start < max_wait_sec:
+            # 1. Handle "Something went wrong" / Retry
+            retry_btn = page.locator("button").filter(has_text=re.compile(r"^Retry$", re.I))
+            if retry_btn.count() > 0 and retry_btn.first.is_visible():
+                try:
+                    console.print("[yellow]Mendeteksi tombol 'Retry' TikTok Studio, mencoba memulihkan...[/yellow]")
+                    retry_btn.first.click()
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    pass
+
+            self.dismiss_popups(page)
+
+            # 2. Check if already in Photos mode
+            if "tab=photo" in page.url:
+                return True
+
+            # 3. Try clicking Photos tab via Playwright locator
+            photos_tab = page.locator("[role='tab'], button, div, span").filter(has_text=re.compile(r"^(Photos|Foto|Photo)$", re.I)).first
+            if photos_tab.count() > 0 and photos_tab.is_visible():
+                try:
+                    console.print("[cyan]Mengaktifkan tab mode Photos di TikTok Studio...[/cyan]")
+                    photos_tab.click(force=True)
+                    page.wait_for_timeout(2000)
+                    if "tab=photo" in page.url or page.locator("input[type='file']").count() > 0:
+                        return True
+                except Exception:
+                    pass
+
+            # 4. Try clicking Photos tab via JavaScript DOM evaluation
+            clicked_js = page.evaluate("""() => {
+                const els = Array.from(document.querySelectorAll("[role='tab'], button, div, span"));
+                for (const el of els) {
+                    const txt = (el.innerText || '').trim();
+                    if (txt === 'Photos' || txt === 'Foto' || txt === 'Photo') {
+                        el.click();
+                        return true;
+                    }
+                }
+                return false;
+            }""")
+            if clicked_js:
+                page.wait_for_timeout(2000)
+                if "tab=photo" in page.url or page.locator("input[type='file']").count() > 0:
+                    return True
+
+            page.wait_for_timeout(1000)
+
+        return "tab=photo" in page.url
 
     def upload_photos(
         self,
@@ -583,9 +875,10 @@ class TikTokUploader:
         title: str = "",
         as_draft: bool = False,
         account_name: str = "default",
-        sound_mode: str = "search",
+        sound_mode: str = "favorite",
         tiktok_sound_query: Optional[str] = None,
-        category_label: str = "Carousel"
+        category_label: str = "Carousel",
+        session_id: Optional[str] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Uploads Poster (single photo) or Carousel (multiple photos) to TikTok Studio.
@@ -595,13 +888,18 @@ class TikTokUploader:
         4. Attach sound from '+ Add sound' (Favorites or Search).
         5. Click Post / Save Draft.
         """
+        from src.publish_tracker import PublishTracker
+
         resolved_photos = [str(Path(p).resolve()) for p in photo_paths]
         if not resolved_photos:
+            PublishTracker.update_step(session_id, "tiktok", "Foto Kosong", 0, "Tidak ada file foto yang diberikan", "error", is_failed=True)
             return False, "Tidak ada file foto yang diberikan untuk diunggah.", None
 
         state_file = get_account_state_file(account_name, "tiktok")
         if not state_file.exists():
-            return False, f"Sesi login TikTok untuk akun '{account_name}' belum ada. Silakan jalankan login terlebih dahulu.", None
+            err_msg = f"Sesi login TikTok untuk akun '{account_name}' belum ada. Silakan jalankan login terlebih dahulu."
+            PublishTracker.update_step(session_id, "tiktok", "Sesi Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+            return False, err_msg, None
 
         sanitized_caption = ContentValidator.sanitize_caption(caption, platform="tiktok")
         timestamp = int(time.time())
@@ -614,21 +912,24 @@ class TikTokUploader:
         console.print(f"Caption: [italic]{sanitized_caption}[/italic]")
         console.print(f"Sound Mode: [cyan]{sound_mode.upper()}[/cyan] (Query: {tiktok_sound_query or 'school'})")
 
+        PublishTracker.update_step(session_id, "tiktok", f"Membuka TikTok Studio ({category_label})...", 15, f"Membuka tab foto TikTok Studio untuk {len(resolved_photos)} slide ({account_name})", "info")
+
         with sync_playwright() as p:
             browser = launch_browser(p, headless=self.headless, slow_mo=600 if not self.headless else 0)
+            safe_state = get_safe_storage_state(state_file)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=str(state_file)
+                storage_state=safe_state
             )
             page = context.new_page()
 
             try:
-                # 1. Buka halaman upload Foto TikTok Studio
-                console.print("[cyan]1. Membuka halaman Creator Upload Photos TikTok...[/cyan]")
-                page.goto("https://www.tiktok.com/tiktokstudio/upload?tab=photo", timeout=45000, wait_until="domcontentloaded")
-                page.wait_for_timeout(5000)
+                # 1. Buka halaman upload TikTok Studio
+                console.print("[cyan]1. Membuka halaman Creator Upload TikTok Studio...[/cyan]")
+                page.goto("https://www.tiktok.com/tiktokstudio/upload", timeout=45000, wait_until="domcontentloaded")
+                page.wait_for_timeout(3000)
 
                 # Cek jika session expired / redirect login
                 if "login" in page.url:
@@ -638,20 +939,47 @@ class TikTokUploader:
 
                 self.dismiss_popups(page)
 
-                # Pastikan tab Photos aktif jika belum di URL tab=photo
-                if "tab=photo" not in page.url:
-                    photos_tab = page.locator("[role='tab'], button").filter(has_text=re.compile(r"^Photos$", re.I)).first
-                    if photos_tab.count() > 0 and photos_tab.is_visible():
-                        photos_tab.click()
-                        page.wait_for_timeout(1500)
+                # Jika TikTok redirect ke halaman onboarding tour (misal /tiktokstudio/sound atau /home)
+                if "tiktokstudio/upload" not in page.url:
+                    upload_sidebar_btn = page.locator("button, a").filter(has_text=re.compile(r"^\+?\s*Upload$", re.I)).first
+                    if upload_sidebar_btn.count() > 0 and upload_sidebar_btn.is_visible():
+                        try:
+                            upload_sidebar_btn.click()
+                            page.wait_for_timeout(3000)
+                        except Exception:
+                            pass
+                    if "tiktokstudio/upload" not in page.url:
+                        page.goto("https://www.tiktok.com/tiktokstudio/upload", timeout=35000, wait_until="domcontentloaded")
+                        page.wait_for_timeout(3000)
+                    self.dismiss_popups(page)
+
+                # Pastikan Tab 'Photos' aktif dan siap menerima file foto
+                self.ensure_photos_tab_active(page, max_wait_sec=15)
+                self.dismiss_popups(page)
 
                 # 2. Masukkan file foto langsung via set_input_files (tanpa membuka OS dialog)
                 console.print(f"[cyan]2. Memasukkan {len(resolved_photos)} file foto...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", f"Mengunggah {len(resolved_photos)} file foto...", 35, f"Mengunggah {len(resolved_photos)} file foto ke TikTok Studio", "step")
+                
+                try:
+                    page.wait_for_selector("input[type='file']", timeout=12000)
+                except Exception:
+                    pass
+
                 file_input = page.locator("input[type='file']").first
+                if file_input.count() == 0:
+                    # Final retry: Re-navigate and click Photos tab
+                    page.goto("https://www.tiktok.com/tiktokstudio/upload", timeout=30000, wait_until="domcontentloaded")
+                    page.wait_for_timeout(3000)
+                    self.ensure_photos_tab_active(page, max_wait_sec=10)
+                    file_input = page.locator("input[type='file']").first
+
                 if file_input.count() == 0:
                     page.screenshot(path=screenshot_path)
                     browser.close()
-                    return False, "Form input file foto tidak ditemukan di halaman TikTok.", screenshot_path
+                    err_msg = "Form input file foto tidak ditemukan di halaman TikTok."
+                    PublishTracker.update_step(session_id, "tiktok", "Input Foto Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 file_input.set_input_files(resolved_photos)
                 page.wait_for_timeout(6000)
@@ -659,6 +987,7 @@ class TikTokUploader:
 
                 # 3. Input Caption / Deskripsi (Judul dikosongkan sesuai preferensi user)
                 console.print("[cyan]3. Mengisi caption/deskripsi konten...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Mengisi caption & hashtag...", 50, "Mengisi teks deskripsi caption postingan foto", "step")
                 
                 # Pastikan kolom judul (catchy title) tetap kosong
                 title_loc = page.locator("input[placeholder*='title'], input[placeholder*='judul'], div[data-placeholder*='title']").first
@@ -689,16 +1018,20 @@ class TikTokUploader:
                 self.apply_tiktok_photo_sound(
                     page=page,
                     sound_mode=sound_mode,
-                    sound_query=tiktok_sound_query or "school"
+                    sound_query=tiktok_sound_query or "school",
+                    session_id=session_id
                 )
                 self.dismiss_popups(page)
 
                 # 5. Scroll ke bawah dan klik Post / Save Draft
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(4000)
+                page.wait_for_timeout(2500)
+                self.dismiss_popups(page)
+                page.wait_for_timeout(1500)
 
                 if as_draft:
                     console.print("[cyan]Menyimpan sebagai Draf...[/cyan]")
+                    PublishTracker.update_step(session_id, "tiktok", "Menyimpan sebagai Draf...", 85, "Menyimpan postingan foto sebagai Draf", "step")
                     draft_btn = page.locator(
                         "button:text-is('Save draft'), button:text-is('Simpan draf')"
                     ).first
@@ -711,6 +1044,7 @@ class TikTokUploader:
                         return False, "Tombol 'Save Draft' tidak ditemukan.", screenshot_path
                 else:
                     console.print(f"[bold green]Memposting {category_label} ke TikTok Akun: [{account_name}]...[/bold green]")
+                    PublishTracker.update_step(session_id, "tiktok", "Mempublikasikan postingan...", 85, "Menekan tombol 'Post' / 'Posting' resmi di TikTok Studio", "step")
                     post_candidates = page.locator(
                         "button.Button__root--type-primary, button[data-e2e='upload_post_btn'], button:text-is('Post'), button:text-is('Posting'), button:text-is('Unggah')"
                     ).all()
@@ -741,15 +1075,24 @@ class TikTokUploader:
                     if not clicked_post:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        return False, "Tombol 'Post' utama tidak ditemukan.", screenshot_path
+                        err_msg = "Tombol 'Post' utama tidak ditemukan."
+                        PublishTracker.update_step(session_id, "tiktok", "Tombol Post Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
                 # 6. Tunggu konfirmasi akhir
                 console.print("[cyan]Menunggu konfirmasi upload selesai...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 95, "Menunggu konfirmasi penerbitan TikTok Studio...", "step")
                 page.wait_for_timeout(10000)
+
+                try:
+                    self._save_storage_state_safe(context, state_file)
+                except Exception:
+                    pass
 
                 page.screenshot(path=screenshot_path)
                 browser.close()
-                console.print(f"[bold green]✓ {category_label} TikTok untuk [{account_name}] berhasil diposting! Bukti: {screenshot_path}[/bold green]")
+                console.print(f"[bold green][OK] {category_label} TikTok untuk [{account_name}] berhasil diposting! Bukti: {screenshot_path}[/bold green]")
+                PublishTracker.update_step(session_id, "tiktok", f"TikTok {category_label} Berhasil Terbit!", 100, f"{category_label} TikTok berhasil dipublikasikan untuk akun '{account_name}'!", "success", is_completed=True, post_url=screenshot_path)
                 return True, f"{category_label} berhasil diupload ke TikTok ({account_name}).", screenshot_path
 
             except Exception as ex:
@@ -758,5 +1101,7 @@ class TikTokUploader:
                 except Exception:
                     pass
                 browser.close()
-                return False, f"Terjadi kesalahan saat upload {category_label} ke TikTok: {str(ex)}", screenshot_path
+                err_msg = f"Terjadi kesalahan saat upload {category_label} ke TikTok: {str(ex)}"
+                PublishTracker.update_step(session_id, "tiktok", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                return False, err_msg, screenshot_path
 

@@ -18,7 +18,7 @@ from src.tiktok_uploader import TikTokUploader
 from src.instagram_uploader import InstagramUploader
 from src.audio_processor import AudioProcessor
 
-console = Console()
+console = Console(highlight=False, legacy_windows=False)
 
 class QueueManager:
     """Manages processing video upload queues, batch uploads, audio mixing, and archiving."""
@@ -172,7 +172,7 @@ class QueueManager:
                     json.dump({"timestamp": timestamp_str, "platforms": platform_logs}, f, indent=2)
 
                 results["success"] += 1
-                console.print(f"[bold green]✓ Selesai & dipindahkan ke: {dest_dir}[/bold green]")
+                console.print(f"[bold green][OK] Selesai & dipindahkan ke: {dest_dir}[/bold green]")
             else:
                 dest_dir = FAILED_DIR / timestamp_str
                 dest_dir.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,8 @@
 import os
 import re
+import json
 from pathlib import Path
+from typing import Union, Optional, Tuple, Dict, Any
 
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -112,26 +114,94 @@ AUDIO_PRESETS = {
 
 def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list = None):
     """
-    Launches browser prioritizing native installed Google Chrome (channel='chrome')
-    to prevent bot detection and bypass 'Maximum attempts reached' restrictions.
+    Launches browser:
+    - If headless=False: Opens visible maximized native Chrome window.
+    - If headless=True: Opens 100% invisible background headless Chromium (no window flash/flicker on Windows).
     """
-    args = [
-        "--start-maximized",
-        "--disable-blink-features=AutomationControlled",
-        "--no-sandbox"
-    ]
-    if extra_args:
-        args.extend(extra_args)
+    if headless:
+        headless_args = [
+            "--headless=new",
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-renderer-backgrounding",
+            "--mute-audio"
+        ]
+        if extra_args:
+            headless_args.extend(extra_args)
+        try:
+            return p.chromium.launch(
+                headless=True,
+                slow_mo=0,
+                args=headless_args
+            )
+        except Exception:
+            return p.chromium.launch(
+                channel="chrome",
+                headless=True,
+                slow_mo=0,
+                args=headless_args
+            )
+    else:
+        headed_args = [
+            "--start-maximized",
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--no-default-browser-check"
+        ]
+        if extra_args:
+            headed_args.extend(extra_args)
+        try:
+            return p.chromium.launch(
+                channel="chrome",
+                headless=False,
+                slow_mo=slow_mo,
+                args=headed_args
+            )
+        except Exception:
+            return p.chromium.launch(
+                headless=False,
+                slow_mo=slow_mo,
+                args=headed_args
+            )
+
+def get_safe_storage_state(state_file: Union[str, Path, None]) -> Optional[dict]:
+    """
+    Loads and sanitizes storage_state JSON so that Playwright never crashes
+    due to invalid sameSite values ('no_restriction', 'unspecified', lowercase 'lax', etc.),
+    and strips bloated/corrupting origins.
+    Returns a safe dictionary ready to pass directly to new_context(storage_state=...).
+    """
+    if not state_file:
+        return None
+    p = Path(state_file)
+    if not p.exists():
+        return None
     try:
-        return p.chromium.launch(
-            channel="chrome",
-            headless=headless,
-            slow_mo=slow_mo,
-            args=args
-        )
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        
+        # Strip bloated localStorage origins
+        data["origins"] = []
+        
+        # Sanitize sameSite for each cookie
+        for c in data.get("cookies", []):
+            val = c.get("sameSite")
+            if not val or not isinstance(val, str):
+                c["sameSite"] = "None"
+            elif "strict" in val.lower():
+                c["sameSite"] = "Strict"
+            elif "lax" in val.lower():
+                c["sameSite"] = "Lax"
+            else:
+                c["sameSite"] = "None"
+        
+        return data
     except Exception:
-        return p.chromium.launch(
-            headless=headless,
-            slow_mo=slow_mo,
-            args=args
-        )
+        return None

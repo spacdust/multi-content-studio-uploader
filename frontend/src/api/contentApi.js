@@ -67,3 +67,31 @@ export async function updatePostLinksApi(account, itemKey, postUrls) {
   });
   return await res.json();
 }
+
+export async function fetchPostLinksApi(account, itemKey, caption = '', category = '', platforms = null, forceRefresh = false) {
+  const res = await fetch('/api/content/find-links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      account,
+      item_key: itemKey,
+      caption,
+      category,
+      platforms,
+      force_refresh: forceRefresh
+    }),
+  });
+  return await res.json();
+}
+
+export async function fetchPublishProgressApi(sessionId) {
+  const res = await fetch(`/api/content/upload/progress?session_id=${encodeURIComponent(sessionId)}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch progress: ${res.statusText}`);
+  }
+  return await res.json();
+}
+
+export function getPublishStreamUrl(sessionId) {
+  return `/api/content/upload/stream?session_id=${encodeURIComponent(sessionId)}`;
+}

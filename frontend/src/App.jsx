@@ -16,6 +16,7 @@ import AddMediaModal from './components/modals/AddMediaModal';
 import AddDateModal from './components/modals/AddDateModal';
 import SettingsModal from './components/modals/SettingsModal';
 import DeleteConfirmModal from './components/modals/DeleteConfirmModal';
+import PublishProgressModal from './components/modals/PublishProgressModal';
 
 export default function App() {
   const { toast, showToast } = useToast();
@@ -191,6 +192,15 @@ export default function App() {
         itemToDelete={contentState.itemToDelete}
         isDeleting={contentState.isDeleting}
         handleConfirmDelete={contentState.handleConfirmDelete}
+      />
+
+      {/* Interactive Real-Time Publishing Modal with Backdrop Blur & Monospace Bot Logs */}
+      <PublishProgressModal
+        isOpen={contentState.publishModalOpen}
+        onClose={contentState.closePublishModal}
+        sessionData={contentState.publishSessionData}
+        isMinimized={contentState.publishMinimized}
+        setIsMinimized={contentState.setPublishMinimized}
       />
     </div>
   );

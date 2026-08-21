@@ -64,3 +64,32 @@ export async function loginInstagramMobileApi(account, username, password, verif
   return await res.json();
 }
 
+export async function importTikTokSessionApi(account, sessionData) {
+  const res = await fetch('/api/accounts/import-tiktok-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      account,
+      session_data: sessionData,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Gagal mengimpor sesi TikTok');
+  }
+  return await res.json();
+}
+
+export async function refreshTikTokSessionApi(account) {
+  const res = await fetch('/api/accounts/refresh-tiktok-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Gagal memverifikasi sesi TikTok');
+  }
+  return await res.json();
+}
+

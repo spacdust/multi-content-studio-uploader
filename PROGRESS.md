@@ -6,6 +6,7 @@ Dokumen ini mencatat seluruh arsitektur teknis, riwayat progress pengembangan (*
 ---
 
 ## 📑 Daftar Isi
+0. [Aturan Pengembangan & Git Policy](#-aturan-pengembangan--git-policy)
 1. [Ringkasan Proyek & Arsitektur](#-ringkasan-proyek--arsitektur)
 2. [Modul & Komponen Utama](#-modul--komponen-utama)
 3. [Riwayat Progress Pengembangan (Milestones)](#-riwayat-progress-pengembangan-milestones)
@@ -17,6 +18,12 @@ Dokumen ini mencatat seluruh arsitektur teknis, riwayat progress pengembangan (*
 9. [In-App LLM & Vision AI Settings Manager](#-in-app-llm--vision-ai-settings-manager)
 10. [Panduan Operasional & Cheat Sheet](#-panduan-operasional--cheat-sheet)
 11. [Roadmap Pengembangan Selanjutnya](#-roadmap-pengembangan-selanjutnya)
+
+---
+
+## ⚠️ Aturan Pengembangan & Git Policy
+> **ATURAN MUTLAK:** DILARANG melakukan `git push` ke remote repository (GitHub) secara otomatis setelah pengerjaan fitur/perbaikan kode, **KECUALI jika USER secara eksplisit memberikan perintah push**.
+> Seluruh pengerjaan, pengujian, dan build dilakukan secara lokal.
 
 ---
 
@@ -241,20 +248,37 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 ### 🔹 Fase 31: Default Filter Hari Ini, Single Unified Date Selector, & Pembersihan UI
 - [x] **Default Tampilan Hari Ini (`TODAY`):** Setiap kali aplikasi dibuka atau di-*refresh*, feed langsung menampilkan media untuk hari ini.
 - [x] **Single Unified Date Selector:** Menyatukan selector tanggal menjadi satu dropdown terpadu (*Hari Ini*, *Semua Tanggal*, arsip folder, dan opsi interaktif *Pilih Tanggal Lain...*).
+
+### 🔹 Fase 35: Interactive Real-Time Publishing Modal with Backdrop Blur & Live Monospace Logs
+- [x] **Backdrop Blur & Glassmorphism Design (`backdrop-blur-md bg-black/75`):** Menampilkan modal interaktif berlatar belakang blur saat proses publish berjalan, dengan nuansa modern *Linear/Apple Pro Studio*.
+- [x] **Live Progress Bar & Dynamic Percentage:** Progress bar bercahaya (*glow gradient*) dengan indikator persentase real-time dan label langkah aktif bot.
+- [x] **Multi-Platform Visual Tracking Cards:** Kartu terpisah untuk TikTok Studio, Instagram, dan Facebook Fanpage dengan status badge dinamis (*Menunggu*, *Memproses...*, *Berhasil ✓*, *Gagal ✗*).
+- [x] **Embedded Monospace Terminal Bot Log Viewer:** Menampilkan output log detail aktivitas bot secara langsung dengan timestamp, badge platform (`[TIKTOK]`, `[INSTAGRAM]`, `[FACEBOOK]`, `[SYS]`), auto-scroll toggle, dan tombol copy log.
+- [x] **Floating Minimized Widget:** Tombol minimize yang menciutkan modal menjadi widget kapsul melayang di pojok kanan bawah tanpa memotong proses upload, dan dapat diperbesar kembali kapan saja.
+- [x] **Celebratory Completion State:** Banner penyelesaian dengan tombol *Selesai & Tutup* serta link langsung ke postingan media yang berhasil diterbitkan.
+- [x] **Thread-Safe SSE Streaming & Polling Fallback:** Modul [`src/publish_tracker.py`](file:///c:/Users/spacdust/Desktop/DEV/Bot/content-uploader/src/publish_tracker.py) dan endpoint `/api/content/upload/stream` untuk streaming data real-time via Server-Sent Events.
 - [x] **Pembersihan Tombol Redundan:** Tombol manual `+ Folder Baru` dihilangkan karena folder sudah dibuat 100% otomatis saat upload.
 - [x] **Auto-Select Topmost Item:** Media teratas di antrean otomatis terpilih dan terbuka di Studio Inspector saat halaman dimuat.
 
 ### 🔹 Fase 32: Manajemen Akun, Instant Login Cookie Detection, & Session Cloning
 - [x] **Fix Pendaftaran Akun Baru:** Menyelaraskan endpoint JSON API `/api/accounts/create` sehingga penambahan akun berjalan lancar.
-- [x] **Instant QR Login Detection:** Deteksi sesi login TikTok membaca cookie sesi secara langsung tanpa terhambat oleh URL `qrcode`.
-- [x] **Cloning Sesi Facebook Antar Akun:** Memungkinkan kloning sesi browser antar akun yang berada di bawah profil/akun utama yang sama dengan switch page mandiri.
+### 🔹 Fase 36: Precision Public Post Link Scanner & Live Copy Manager (v1.1 Release)
+- [x] **Category-Aware Precision Routing:** Sistem pencari tautan secara cerdas membedakan pencarian antara format `Video (Reels)`, `Poster (Foto Tunggal)`, dan `Carousel (Multi-Slide)`.
+- [x] **Instagram Mobile Clips Protocol (`user_clips`):** Mengekstrak reel video secara langsung via endpoint Instagrapi Clips dengan metadata caption utuh, serta `user_medias` untuk Poster dan Carousel.
+- [x] **TikTok Studio Multi-Phrase Smart Search:** Menggunakan pencarian kata kunci 3 kata spesifik dengan *early-stop matching* 100% pada TikTok Studio.
+- [x] **Facebook Scoped Reels Grid & Video Player Captioning:** Mengisolasi pemindaian pada grid utama (`div[role='main']`), menghindari tautan notifikasi komentar di navbar, dan membaca langsung teks caption dari player video Facebook.
+- [x] **Sequential Fingerprint Matching (`difflib.SequenceMatcher`):** Menjamin pencocokan urutan kata asli kalimat caption sehingga bebas dari salah cocok (*zero false-positives*).
+- [x] **Interactive Obsidian Live Copy Modal:** Modal bertema gelap dengan indikator pemindaian live, tombol salin tautan per platform, dan tombol salin format lengkap laporan (WhatsApp ready).
+- [x] **Modal Persistence Lock:** Modal tidak akan tertutup secara otomatis oleh background polling dashboard, dan hanya tertutup jika pengguna mengklik tombol Tutup atau tombol X.
 
 ---
 
-## 📊 Tabel Matriks Fitur & Status Terkini (v1.0)
+## 📊 Tabel Matriks Fitur & Status Terkini (v1.1)
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
+| **Precision Post Link Scanner** | ✅ **Stabil (v1.1)** | 100% akurat memindai link TikTok, IG, dan FB sesuai format |
+| **Obsidian Live Copy Modal** | ✅ **Stabil (v1.1)** | Modal progress live, salin per-platform, & format laporan WA |
 | **Tri-Platform Master Publish** | ✅ **Stabil** | 1-klik publikasi berurutan ke TikTok, Instagram, dan Facebook |
 | **Facebook Fanspage Uploader** | ✅ **Stabil** | Upload Reel (ikon merah) & Foto/Carousel (ikon hijau + caption atas) |
 | **Instagram Web Direct Uploader** | ✅ **Stabil** | Upload 9:16 Original tanpa crop + multi-slide carousel |

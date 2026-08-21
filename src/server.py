@@ -18,6 +18,7 @@ from src.config import (
     CONTENT_DIR,
     BASE_DIR,
     ACCOUNTS_DIR,
+    LOGS_DIR,
     get_account_content_dir,
     get_account_dir
 )
@@ -32,6 +33,7 @@ from src.caption_generator import (
 )
 from src.tiktok_uploader import TikTokUploader
 from src.instagram_uploader import InstagramUploader
+from src.publish_tracker import PublishTracker
 
 app = FastAPI(
     title="Content Uploader Studio API",
@@ -67,7 +69,8 @@ class SaveCaptionRequest(BaseModel):
     date: str
     item_name: str
     caption: str
-    sound_mode: Optional[str] = "search"
+    as_draft: Optional[bool] = False
+    sound_mode: Optional[str] = "favorite"
     sound_query: Optional[str] = ""
     sound_db: Optional[str] = "-7"
     scheduled_time: Optional[str] = None
@@ -77,6 +80,7 @@ class UploadItemRequest(BaseModel):
     item_key: str
     platform: str = "all"
     headless: bool = False
+    session_id: Optional[str] = None
 
 class DeleteItemRequest(BaseModel):
     account: str
@@ -109,10 +113,22 @@ class CreateAccountRequest(BaseModel):
     name: str
     description: Optional[str] = ""
 
+class ImportTikTokSessionRequest(BaseModel):
+    account: str
+    session_data: str
+
 class UpdateLinksRequest(BaseModel):
     account: str
     item_key: str
     post_urls: Dict[str, str]
+
+class FetchLinksRequest(BaseModel):
+    account: str
+    item_key: str
+    caption: Optional[str] = ""
+    category: Optional[str] = ""
+    platforms: Optional[List[str]] = None
+    force_refresh: Optional[bool] = False
 
 # Helper to read and write .env
 def read_current_env() -> Dict[str, str]:
@@ -276,6 +292,24 @@ def login_instagram_mobile_endpoint(req: InstagramMobileLoginRequest):
     else:
         return {"status": "error", "message": msg}
 
+@app.post("/api/accounts/import-tiktok-session")
+def import_tiktok_session_endpoint(req: ImportTikTokSessionRequest):
+    """Imports sessionid or full cookie string directly for TikTok authentication."""
+    ok, msg = AuthManager.import_tiktok_sessionid(req.account, req.session_data)
+    if ok:
+        return {"status": "success", "message": msg}
+    else:
+        raise HTTPException(status_code=400, detail=msg)
+
+@app.post("/api/accounts/refresh-tiktok-session")
+def refresh_tiktok_session_endpoint(req: OpenStudioRequest):
+    """Validates and refreshes live TikTok cookies in background."""
+    ok, msg = AuthManager.refresh_tiktok_session(req.account)
+    if ok:
+        return {"status": "success", "message": msg}
+    else:
+        raise HTTPException(status_code=400, detail=msg)
+
 @app.post("/api/accounts/open-tiktok-studio")
 def open_tiktok_studio(req: OpenStudioRequest):
     """Spawns an interactive maximized headed browser directly to TikTok Studio loaded with the specific account's session."""
@@ -293,7 +327,7 @@ def open_tiktok_studio(req: OpenStudioRequest):
     subprocess.Popen(
         cmd,
         cwd=str(BASE_DIR),
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
     )
 
     return {
@@ -318,7 +352,7 @@ def open_instagram_studio(req: OpenStudioRequest):
     subprocess.Popen(
         cmd,
         cwd=str(BASE_DIR),
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
     )
 
     return {
@@ -343,7 +377,7 @@ def open_facebook_studio(req: OpenStudioRequest):
     subprocess.Popen(
         cmd,
         cwd=str(BASE_DIR),
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
     )
 
     return {
@@ -438,6 +472,35 @@ def update_post_links(req: UpdateLinksRequest):
     success = ContentManager.update_post_urls(req.account, req.item_key, req.post_urls)
     return {"status": "success" if success else "error", "item_key": req.item_key, "post_urls": req.post_urls}
 
+@app.post("/api/content/fetch-links")
+@app.post("/api/content/find-links")
+def auto_fetch_post_links(req: FetchLinksRequest):
+    """
+    Automatically extracts exact post URLs (TikTok, Instagram, Facebook) using
+    account scoping and caption fingerprint matching.
+    """
+    from src.link_finder import LinkFinder
+    
+    caption = req.caption
+    if not caption:
+        try:
+            items = ContentManager.scan_content(req.account)
+            target = next((it for it in items if it.get("item_key") == req.item_key or Path(it.get("item_key", "")).name == Path(req.item_key).name), None)
+            if target:
+                caption = target.get("caption", "") or target.get("name", "")
+        except Exception:
+            pass
+
+    results = LinkFinder.find_all_links(
+        account_name=req.account,
+        item_key=req.item_key,
+        caption=caption or "",
+        category=req.category or "",
+        platforms=req.platforms,
+        force_refresh=req.force_refresh or False
+    )
+    return {"status": "success", "item_key": req.item_key, "data": results, "post_urls": results.get("urls", {})}
+
 @app.post("/api/content/init-date")
 def init_date_folder(req: InitDateRequest):
     """Creates category folders for a specific date in an account."""
@@ -517,7 +580,7 @@ def save_caption(req: SaveCaptionRequest):
     default_db = "-7" if req.category == "Video" else "0"
     meta_data.update({
         "caption": req.caption,
-        "sound_mode": req.sound_mode or "search",
+        "sound_mode": req.sound_mode or "favorite",
         "sound_query": req.sound_query if req.sound_query is not None else "",
         "sound_db": req.sound_db if (req.sound_db is not None and req.sound_db != "") else default_db,
         "scheduled_time": req.scheduled_time,
@@ -571,10 +634,11 @@ async def upload_content_media(
                 f.write(content)
             saved_files.append(slide_filename)
 
-        # Write initial meta.json with scheduled_time
+        # Write initial meta.json with blank caption and remove any lingering .txt file
         meta_data = {
             "caption": "",
             "scheduled_time": scheduled_time if scheduled_time else None,
+            "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": "0",
             "platforms": ["instagram", "tiktok", "facebook"],
@@ -582,6 +646,13 @@ async def upload_content_media(
         }
         with open(target_folder / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta_data, f, indent=2)
+
+        txt_file = target_folder / "caption.txt"
+        if txt_file.exists():
+            try:
+                txt_file.unlink()
+            except Exception:
+                pass
 
         return {
             "status": "success",
@@ -609,6 +680,7 @@ async def upload_content_media(
         meta_data = {
             "caption": "",
             "scheduled_time": scheduled_time if scheduled_time else None,
+            "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": default_db,
             "platforms": ["tiktok", "instagram", "facebook"],
@@ -616,6 +688,14 @@ async def upload_content_media(
         }
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta_data, f, indent=2)
+
+        # Remove any lingering old .txt caption file for this item name
+        txt_path = target_dir / f"{target_path.stem}.txt"
+        if txt_path.exists():
+            try:
+                txt_path.unlink()
+            except Exception:
+                pass
 
         return {
             "status": "success",
@@ -671,12 +751,39 @@ def serve_media_file(account: str, category: str, date: str, filename: str):
 
 @app.post("/api/content/upload")
 def upload_item(req: UploadItemRequest):
-    """Executes upload in an independent native process to avoid Playwright async loop collisions."""
+    """Executes upload in an independent native process with real-time session tracking."""
     all_items = ContentManager.scan_content(account_name=req.account)
     target_item = next((i for i in all_items if i["item_key"] == req.item_key), None)
     
     if not target_item:
         raise HTTPException(status_code=404, detail=f"Content item '{req.item_key}' not found")
+
+    session_id = req.session_id or f"pub_{int(time.time() * 1000)}"
+
+    # Determine target platforms
+    if req.platform == "all":
+        target_platforms = []
+        if AuthManager.is_authenticated(req.account, "tiktok"):
+            target_platforms.append("tiktok")
+        if AuthManager.is_authenticated(req.account, "instagram") or AuthManager.is_instagram_mobile_authenticated(req.account):
+            target_platforms.append("instagram")
+        if AuthManager.is_authenticated(req.account, "facebook"):
+            target_platforms.append("facebook")
+        if not target_platforms:
+            target_platforms = ["tiktok"]
+    else:
+        target_platforms = [p.strip().lower() for p in req.platform.split(",")]
+
+    # Initialize live publishing session
+    PublishTracker.init_session(
+        session_id=session_id,
+        account=req.account,
+        item_key=target_item["item_key"],
+        item_name=target_item["name"],
+        category=target_item["category"],
+        platforms=target_platforms,
+        date_str=target_item.get("date", "")
+    )
 
     cmd = [
         sys.executable,
@@ -685,19 +792,60 @@ def upload_item(req: UploadItemRequest):
         "--account", req.account,
         "--category", target_item["category"],
         "--date", target_item["date"],
-        "--item", target_item["item_key"],
-        "--platform", req.platform
+        "--item", target_item["name"],
+        "--platform", req.platform,
+        "--session-id", session_id
     ]
     if req.headless:
         cmd.append("--headless")
 
+    flags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+
     subprocess.Popen(
         cmd,
         cwd=str(BASE_DIR),
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        creationflags=flags
     )
 
-    return {"status": "started", "message": f"Proses upload {target_item['name']} sedang berjalan di browser visual!"}
+    return {
+        "status": "started",
+        "session_id": session_id,
+        "message": f"Proses upload {target_item['name']} sedang berjalan di browser visual!",
+        "target_platforms": target_platforms
+    }
+
+@app.get("/api/content/upload/progress")
+def get_upload_progress(session_id: str = Query(...)):
+    """Returns current publishing session progress, platform states, and logs."""
+    session = PublishTracker.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Sesi publish '{session_id}' tidak ditemukan")
+    return session
+
+@app.get("/api/content/upload/stream")
+async def stream_upload_progress(session_id: str = Query(...)):
+    """SSE real-time event stream for publishing progress and granular logs."""
+    async def event_generator():
+        last_str = ""
+        poll_count = 0
+        while poll_count < 600: # Max 10 minutes stream
+            session = PublishTracker.get_session(session_id)
+            if session:
+                current_str = json.dumps(session, ensure_ascii=False)
+                if current_str != last_str:
+                    yield f"data: {current_str}\n\n"
+                    last_str = current_str
+
+                if session.get("status") in ["completed", "failed"]:
+                    yield f"data: {current_str}\n\n"
+                    break
+            else:
+                yield f"data: {json.dumps({'session_id': session_id, 'status': 'pending', 'percent': 0, 'current_step': 'Menyiapkan sesi...'})}\n\n"
+
+            poll_count += 1
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # Serve React static build if exists
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"

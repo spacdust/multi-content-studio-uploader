@@ -12,11 +12,12 @@ from src.config import (
     META_BUSINESS_LOGIN_URL,
     DEFAULT_USER_AGENT,
     VIEWPORT,
-    LOGS_DIR
+    LOGS_DIR,
+    get_safe_storage_state
 )
 from src.validator import ContentValidator
 
-console = Console()
+console = Console(highlight=False, legacy_windows=False)
 
 class MetaBusinessUploader:
     """Automates cross-posting Reels, Videos, Posters, and Carousels to Instagram and Facebook Page via Meta Business Suite."""
@@ -66,11 +67,12 @@ class MetaBusinessUploader:
                     "--no-sandbox"
                 ]
             )
+            safe_state = get_safe_storage_state(state_file)
             context = browser.new_context(
                 user_agent=DEFAULT_USER_AGENT,
                 viewport=None if not self.headless else VIEWPORT,
                 no_viewport=True if not self.headless else False,
-                storage_state=str(state_file)
+                storage_state=safe_state
             )
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {

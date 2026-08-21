@@ -13,7 +13,7 @@ from src.config import (
     AUDIO_PRESETS
 )
 
-console = Console()
+console = Console(highlight=False, legacy_windows=False)
 
 class AudioProcessor:
     """Manages audio mixing, background music overlay, and volume adjustments for video content."""
@@ -213,5 +213,5 @@ class AudioProcessor:
             console.print(f"[bold red]Gagal memproses audio dengan ffmpeg:[/] {res.stderr[:200]}")
             return video_file, False
 
-        console.print(f"[bold green]✓ Audio berhasil dimixing ke:[/] {output_file.name}")
+        console.print(f"[bold green][OK] Audio berhasil dimixing ke:[/] {output_file.name}")
         return output_file, True
