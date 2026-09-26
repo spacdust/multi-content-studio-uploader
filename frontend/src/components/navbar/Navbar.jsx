@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Settings } from 'lucide-react';
+import { Sparkles, Settings, CalendarClock } from 'lucide-react';
 import AccountSwitcherPopover from './AccountSwitcherPopover';
 
 export default function Navbar({
@@ -17,6 +17,7 @@ export default function Navbar({
   setShowSettingsModal,
   setTestResult,
   showToast,
+  schedulerStatus,
 }) {
   return (
     <header className="border-b border-zinc-800/80 bg-[#09090b]/80 backdrop-blur-md sticky top-0 z-30 px-6 py-3.5">
@@ -41,6 +42,29 @@ export default function Navbar({
 
         {/* Account Selector & Settings */}
         <div className="flex items-center gap-2.5">
+          {/* Live Auto-Scheduler Indicator */}
+          {schedulerStatus && schedulerStatus.total_scheduled_pending > 0 && (
+            <div
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-xs shadow-xs"
+              title={
+                schedulerStatus.next_job
+                  ? `Jadwal Berikutnya: ${schedulerStatus.next_job.item_name} (${schedulerStatus.next_job.scheduled_time}) - ${schedulerStatus.next_job.account}`
+                  : 'Auto-Scheduler Aktif'
+              }
+            >
+              <div className="relative flex items-center justify-center">
+                <CalendarClock className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </div>
+              <span className="text-[11px] font-semibold text-emerald-300 font-mono">
+                {schedulerStatus.total_scheduled_pending} Terjadwal
+              </span>
+            </div>
+          )}
+
           {/* Bespoke Pro Account Switcher Popover */}
           <AccountSwitcherPopover
             accounts={accounts}

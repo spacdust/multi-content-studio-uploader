@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import random
 import time
 from pathlib import Path
@@ -39,8 +40,8 @@ class TikTokUploader:
     @staticmethod
     def _save_storage_state_safe(context, state_file: Path) -> bool:
         """
-        Safely saves storage_state by MERGING rotated cookies into existing state_file,
-        preserving all authentic companion tokens (ttwid, odin_tt, store-idc, passport tokens).
+        Safely saves storage_state using Playwright's native context.storage_state(),
+        preserving all domain-specific cookies, security tokens, and localStorage origins.
         """
         try:
             new_cookies = context.cookies()
@@ -52,40 +53,9 @@ class TikTokUploader:
                 # DO NOT OVERWRITE VALID EXISTING SESSION WITH LOGGED-OUT EMPTY STATE!
                 return False
 
-            existing_cookies_map = {}
-            if state_file.exists() and state_file.stat().st_size > 50:
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        old_state = json.load(f)
-                    for c in old_state.get("cookies", []):
-                        if c.get("name"):
-                            existing_cookies_map[c["name"]] = c
-                except Exception:
-                    pass
-
-            for c in new_cookies:
-                name = c.get("name")
-                if name:
-                    val = c.get("sameSite")
-                    if not val or not isinstance(val, str):
-                        c["sameSite"] = "None"
-                    elif "strict" in val.lower():
-                        c["sameSite"] = "Strict"
-                    elif "lax" in val.lower():
-                        c["sameSite"] = "Lax"
-                    else:
-                        c["sameSite"] = "None"
-                    existing_cookies_map[name] = c
-
-            state = {
-                "cookies": list(existing_cookies_map.values()),
-                "origins": []
-            }
-
             state_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_file = state_file.with_suffix(".tmp")
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2)
+            context.storage_state(path=str(tmp_file))
             tmp_file.replace(state_file)
             return True
         except Exception:
@@ -93,6 +63,32 @@ class TikTokUploader:
 
     def dismiss_popups(self, page, target=None):
         """Dismiss all common TikTok guide tours, coachmarks, tooltips, cookie dialogs, and announcement modals."""
+        # Proteksi: Jangan dismiss jika sedang tampil modal konfirmasi post (misal 'Video sedang diproses' / 'Post anyway')
+        try:
+            is_post_dialog_open = page.evaluate("""
+                () => {
+                    const dialogs = document.querySelectorAll("div[role='dialog'], div[class*='modal'], div[class*='Modal'], div[class*='TUXModal']");
+                    for (const d of dialogs) {
+                        const t = (d.innerText || '').toLowerCase();
+                        if (
+                            t.includes('proses') ||
+                            t.includes('process') ||
+                            t.includes('hak cipta') ||
+                            t.includes('copyright') ||
+                            t.includes('post anyway') ||
+                            t.includes('tetap posting')
+                        ) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """)
+            if is_post_dialog_open:
+                return
+        except Exception:
+            pass
+
         try:
             page.keyboard.press("Escape")
         except Exception:
@@ -177,6 +173,168 @@ class TikTokUploader:
                 except Exception:
                     pass
 
+    def handle_post_confirmation_popups(self, page, session_id: Optional[str] = None) -> bool:
+        """
+        Detects and automatically confirms modals that appear when posting on TikTok Studio:
+        - "Video is still being processed. Post anyway?" / "Video Anda masih diproses. Tetap posting?"
+        - "Copyright check in progress. Post anyway?" / "Pemeriksaan hak cipta sedang berlangsung."
+        - "High-definition video processing" / "Pemrosesan HD"
+        - General modal asking to confirm or proceed with publishing.
+
+        Returns True if a confirmation popup was detected and clicked.
+        """
+        from src.publish_tracker import PublishTracker
+
+        handled = False
+        modal_selectors = [
+            "div[role='dialog']",
+            "div[class*='TUXModal']",
+            "div[class*='modal']",
+            "div[class*='dialog']",
+            "div[class*='Modal-container']",
+            "div.common-modal"
+        ]
+
+        high_priority_patterns = [
+            re.compile(r"^(Post anyway|Tetap posting|Posting sekarang|Post now|Continue to post|Lanjutkan posting|Tetap unggah|Posting tetap)$", re.I),
+            re.compile(r"(post anyway|tetap posting|posting sekarang|post now|lanjutkan posting|tetap unggah)", re.I)
+        ]
+        fallback_confirm_patterns = [
+            re.compile(r"^(Post|Posting|Unggah|Lanjutkan|Continue|Confirm|Konfirmasi|OK|Mengerti)$", re.I)
+        ]
+
+        # 1. Check inside active dialogs / modals via Playwright locators
+        for m_sel in modal_selectors:
+            try:
+                modals = page.locator(m_sel).all()
+                for modal in modals:
+                    if not modal.is_visible():
+                        continue
+
+                    modal_text = (modal.inner_text() or "").lower()
+                    is_processing_or_confirm = any(kw in modal_text for kw in [
+                        "proses", "process", "hak cipta", "copyright", "anyway",
+                        "tetap", "lanjutkan", "continue", "upload", "unggah", "post", "posting"
+                    ])
+
+                    if is_processing_or_confirm:
+                        clean_preview = modal_text[:80].replace("\n", " ")
+                        console.print(f"[bold yellow][TikTok Popup] Mendeteksi dialog konfirmasi posting: '{clean_preview}...'[/bold yellow]")
+                        PublishTracker.log(
+                            session_id,
+                            "tiktok",
+                            f"Mendeteksi dialog konfirmasi ('{clean_preview}...'). Menekan 'Tetap posting / Post anyway'...",
+                            "step"
+                        )
+
+                        # Step 1A: Look for explicit 'Post anyway' / 'Tetap posting' buttons
+                        for pat in high_priority_patterns:
+                            btn = modal.locator("button, div[role='button']").filter(has_text=pat).first
+                            if btn.count() > 0 and btn.is_visible():
+                                btn_txt = (btn.inner_text() or "").strip()
+                                console.print(f"[bold green][TikTok Popup] Mengklik tombol konfirmasi: '{btn_txt}'...[/bold green]")
+                                btn.click(force=True)
+                                page.wait_for_timeout(1500)
+                                handled = True
+                                break
+
+                        if handled:
+                            break
+
+                        # Step 1B: Primary colored button inside dialog (ByteDance TUX primary button)
+                        primary_btn = modal.locator(
+                            "button.Button__root--type-primary, button[class*='primary'], button[data-e2e*='confirm'], button[data-e2e*='post']"
+                        ).first
+                        if primary_btn.count() > 0 and primary_btn.is_visible():
+                            btn_txt = (primary_btn.inner_text() or "").strip()
+                            console.print(f"[bold green][TikTok Popup] Mengklik tombol primary dialog: '{btn_txt}'...[/bold green]")
+                            primary_btn.click(force=True)
+                            page.wait_for_timeout(1500)
+                            handled = True
+                            break
+
+                        # Step 1C: Fallback confirm pattern (avoiding Cancel / Batal)
+                        for pat in fallback_confirm_patterns:
+                            btn = modal.locator("button, div[role='button']").filter(has_text=pat).first
+                            if btn.count() > 0 and btn.is_visible():
+                                btn_txt = (btn.inner_text() or "").strip()
+                                if btn_txt.lower() not in ["cancel", "batal", "wait", "tunggu", "kembali"]:
+                                    console.print(f"[bold green][TikTok Popup] Mengklik fallback button: '{btn_txt}'...[/bold green]")
+                                    btn.click(force=True)
+                                    page.wait_for_timeout(1500)
+                                    handled = True
+                                    break
+            except Exception:
+                pass
+
+            if handled:
+                break
+
+        # 2. Check directly on whole page if modal wrapper didn't match
+        if not handled:
+            for pat in high_priority_patterns:
+                try:
+                    btn = page.locator("button, div[role='button']").filter(has_text=pat).first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn_txt = (btn.inner_text() or "").strip()
+                        console.print(f"[bold green][TikTok Popup] Mengklik tombol konfirmasi halaman: '{btn_txt}'...[/bold green]")
+                        PublishTracker.log(session_id, "tiktok", f"Mengklik tombol konfirmasi: '{btn_txt}'", "step")
+                        btn.click(force=True)
+                        page.wait_for_timeout(1500)
+                        handled = True
+                        break
+                except Exception:
+                    pass
+
+        # 3. Native JavaScript DOM evaluation fallback
+        if not handled:
+            try:
+                js_handled = page.evaluate("""
+                    () => {
+                        const dialogs = document.querySelectorAll("div[role='dialog'], div[class*='modal'], div[class*='Modal'], div[class*='TUXModal'], div[class*='popover']");
+                        for (const dlg of dialogs) {
+                            const txt = (dlg.innerText || '').toLowerCase();
+                            if (
+                                txt.includes('proses') ||
+                                txt.includes('process') ||
+                                txt.includes('hak cipta') ||
+                                txt.includes('copyright') ||
+                                txt.includes('anyway') ||
+                                txt.includes('tetap posting')
+                            ) {
+                                const buttons = Array.from(dlg.querySelectorAll('button, div[role="button"]'));
+                                const confirmBtn = buttons.find(b => {
+                                    const bTxt = (b.innerText || '').toLowerCase();
+                                    return (
+                                        bTxt.includes('tetap posting') ||
+                                        bTxt.includes('post anyway') ||
+                                        bTxt.includes('posting sekarang') ||
+                                        bTxt.includes('post now') ||
+                                        bTxt.includes('lanjutkan') ||
+                                        bTxt.includes('continue') ||
+                                        bTxt.includes('tetap unggah')
+                                    );
+                                }) || buttons.find(b => (b.className || '').includes('primary'));
+
+                                if (confirmBtn) {
+                                    confirmBtn.click();
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }
+                """)
+                if js_handled:
+                    console.print("[bold green][TikTok Popup] Berhasil mengonfirmasi dialog posting via DOM evaluate![/bold green]")
+                    PublishTracker.log(session_id, "tiktok", "Berhasil mengklik konfirmasi posting (DOM evaluate)", "step")
+                    page.wait_for_timeout(1500)
+                    handled = True
+            except Exception:
+                pass
+
+        return handled
+
     def apply_tiktok_editor_sound(
         self,
         page,
@@ -194,6 +352,11 @@ class TikTokUploader:
         5. Click 'Save' to apply.
         """
         from src.publish_tracker import PublishTracker
+
+        if str(sound_mode).lower() in ["none", "no_sound", "nosound", "no sound", "off", "disable", "disabled"]:
+            console.print("[bold cyan][No Sound] Mode No Sound dipilih: Melewati penambahan musik/sound TikTok Studio.[/bold cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Mode No Sound...", 50, "Melewati pemilihan musik/sound TikTok (Original audio only)", "info")
+            return True
 
         try:
             console.print(f"[bold cyan]=== MEMBUKA TIKTOK STUDIO AUDIO & SOUND EDITOR (Mode: {sound_mode.upper()}) ===[/bold cyan]")
@@ -406,6 +569,153 @@ class TikTokUploader:
             console.print(f"[bold yellow]Peringatan saat konfigurasi Sound Editor: {ex}[/bold yellow]")
             return False
 
+    def apply_tiktok_product_link(
+        self,
+        page,
+        tiktok_product: Dict[str, Any],
+        session_id: Optional[str] = None
+    ) -> bool:
+        """
+        Adds a TikTok Shop Yellow Cart product link to the video upload in TikTok Studio.
+        Flow:
+        1. Find and click "+ Tambah" / "+ Add" under "Tambah tautan" (Add link).
+        2. In the first popup (select Link type: Product), click "Berikutnya" / "Next".
+        3. In the product list modal ("Tambah tautan produk"):
+           - Search keyword or product title in search input if needed.
+           - Select the matching product row / .TUXRadio.
+           - Click "Berikutnya" / "Next".
+        4. In step 2 ("Nama produk"):
+           - Clear and type custom product name (custom_title, max 30 chars).
+           - Click final "Tambah" / "Add" button.
+        """
+        from src.publish_tracker import PublishTracker
+        try:
+            prod_id = str(tiktok_product.get("product_id") or "").strip()
+            prod_title = str(tiktok_product.get("title") or "").strip()
+            custom_title = str(tiktok_product.get("custom_title") or prod_title[:30]).strip()
+            if not custom_title:
+                custom_title = prod_title[:30]
+            custom_title = custom_title[:30]
+
+            console.print(f"[cyan][TikTok Shop] Memulai penambahan Keranjang Kuning: '{prod_title}' (Label: '{custom_title}')...[/cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Menambahkan Keranjang Kuning...", 82, f"Membuka modal tautan produk untuk '{custom_title}'...", "step")
+
+            # 1. Pastikan overlay Joyride / guide bersih
+            try:
+                page.evaluate("document.querySelectorAll('.react-joyride__overlay, #react-joyride-portal, [data-test-id=\"overlay\"]').forEach(e => e.remove());")
+            except Exception:
+                pass
+
+            # Scroll ke area Tambah tautan
+            page.evaluate("window.scrollTo(0, 500)")
+            page.wait_for_timeout(1000)
+
+            # Cari tombol Tambah tautan (+ Tambah / + Add)
+            add_btn = None
+            candidates = page.locator("button:has-text('Tambah'), button:has-text('Add')").all()
+            for btn in candidates:
+                txt = (btn.text_content() or "").strip()
+                if txt in ["Tambah", "Add", "+ Tambah", "+ Add"]:
+                    add_btn = btn
+                    break
+
+            if not add_btn:
+                add_btn = page.locator("div:has-text('+ Tambah'):not(:has-text('Tambah tautan')), div[class*='add-btn']").first
+
+            if not add_btn or add_btn.count() == 0:
+                console.print("[dim yellow][TikTok Shop] Tombol '+ Tambah' tautan tidak ditemukan di halaman.[/dim yellow]")
+                return False
+
+            console.print("[cyan][TikTok Shop] Mengklik tombol '+ Tambah' tautan...[/cyan]")
+            add_btn.scroll_into_view_if_needed()
+            page.wait_for_timeout(500)
+            add_btn.click(force=True)
+            page.wait_for_timeout(2500)
+
+            # 2. Klik "Berikutnya" / "Next" pada popup jenis tautan
+            next_btn = page.locator("button:has-text('Berikutnya'), button:has-text('Next')").first
+            if next_btn.count() > 0:
+                console.print("[cyan][TikTok Shop] Mengklik 'Berikutnya' pada popup jenis tautan...[/cyan]")
+                next_btn.click(force=True)
+                page.wait_for_timeout(4000)
+
+            # 3. Cari dan pilih produk di modal
+            search_input = page.locator("input[class*='TUXTextInputCore-input'], input[placeholder*='Cari produk'], input[placeholder*='Search products']").first
+            if search_input.count() > 0:
+                search_term = prod_title.split("-")[0].strip() if "-" in prod_title else prod_title[:20].strip()
+                if search_term:
+                    console.print(f"[cyan][TikTok Shop] Mencari produk dengan kata kunci: '{search_term}'...[/cyan]")
+                    search_input.click()
+                    search_input.fill(search_term)
+                    page.wait_for_timeout(400)
+                    search_input.press("Enter")
+                    page.wait_for_timeout(3000)
+
+            # Cari radio button produk
+            radio_selected = False
+            if prod_id:
+                try:
+                    target_row_radio = page.locator(f"tr:has-text('{prod_id}') .TUXRadio, div:has-text('{prod_id}') .TUXRadio").first
+                    if target_row_radio.count() > 0:
+                        target_row_radio.click(force=True)
+                        radio_selected = True
+                except Exception:
+                    pass
+
+            if not radio_selected:
+                radio = page.locator(".TUXRadio").first
+                if radio.count() > 0:
+                    console.print("[cyan][TikTok Shop] Memilih radio produk pertama di daftar...[/cyan]")
+                    radio.click(force=True)
+                    radio_selected = True
+
+            if not radio_selected:
+                console.print("[dim yellow][TikTok Shop] Gagal memilih produk di modal.[/dim yellow]")
+                return False
+
+            page.wait_for_timeout(1000)
+
+            # 4. Klik "Berikutnya" / "Next" di pojok kanan bawah modal
+            modal_next_btn = page.locator("button:has-text('Berikutnya'), button:has-text('Next')").last
+            if modal_next_btn.count() > 0 and not modal_next_btn.is_disabled():
+                console.print("[cyan][TikTok Shop] Mengklik 'Berikutnya' menuju pengaturan nama produk...[/cyan]")
+                modal_next_btn.click(force=True)
+                page.wait_for_timeout(2500)
+            else:
+                console.print("[dim yellow][TikTok Shop] Tombol 'Berikutnya' masih disabled.[/dim yellow]")
+                return False
+
+            # 5. Ketik custom product name (maksimal 30 karakter)
+            console.print(f"[cyan][TikTok Shop] Mengetik nama keranjang kuning: '{custom_title}'...[/cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Menamai Keranjang Kuning...", 84, f"Menamai produk dengan '{custom_title}'...", "step")
+
+            modal_dialog = page.locator("div[role='dialog'], .TUXModal").last
+            title_input = modal_dialog.locator("input").first
+            if title_input.count() > 0:
+                title_input.click()
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Backspace")
+                page.wait_for_timeout(200)
+                title_input.fill(custom_title)
+                page.wait_for_timeout(500)
+
+            # 6. Klik tombol "Tambah" / "Add" final
+            final_tambah_btn = modal_dialog.locator("button:has-text('Tambah'), button:has-text('Add')").last
+            if final_tambah_btn.count() > 0:
+                console.print("[bold green][TikTok Shop] Mengklik tombol final 'Tambah' produk keranjang kuning![/bold green]")
+                final_tambah_btn.click(force=True)
+                page.wait_for_timeout(3000)
+                PublishTracker.log(session_id, "tiktok", f"✓ Produk Keranjang Kuning '{custom_title}' berhasil ditambahkan ke video!", "success")
+                return True
+            else:
+                console.print("[dim yellow][TikTok Shop] Tombol final 'Tambah' tidak ditemukan.[/dim yellow]")
+                return False
+
+        except Exception as ex:
+            console.print(f"[dim yellow][TikTok Shop Warning] Gagal menambahkan keranjang kuning: {ex}[/dim yellow]")
+            PublishTracker.log(session_id, "tiktok", f"Catatan: Keranjang kuning dilewati karena kendala UI ({ex})", "warning")
+            return False
+
     def upload(
         self,
         video_path: str | Path,
@@ -416,7 +726,8 @@ class TikTokUploader:
         tiktok_sound_query: Optional[str] = None,
         sound_volume_db: Optional[str] = "-7",
         schedule_time: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        tiktok_product: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Uploads a video to TikTok with full maximized browser, sound search/favorite & volume tuning.
@@ -455,8 +766,19 @@ class TikTokUploader:
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=safe_state
+                storage_state=safe_state,
+                locale="id-ID",
+                timezone_id="Asia/Jakarta"
             )
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                window.navigator.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['id-ID', 'id', 'en-US', 'en']
+                });
+            """)
             page = context.new_page()
 
             try:
@@ -534,25 +856,17 @@ class TikTokUploader:
                     page.evaluate("window.scrollTo(0, 0)")
                     page.wait_for_timeout(500)
                     
-                    caption_locator = page.locator(
-                        "div[contenteditable='true'], div.notranslate[contenteditable='true'], div[data-placeholder*='caption'], div.public-DraftEditor-content, div[data-e2e='caption-editor']"
-                    ).first
-
                     try:
-                        if caption_locator.count() > 0:
-                            caption_locator.click()
-                            page.wait_for_timeout(500)
-                            page.keyboard.press("Control+A")
-                            page.keyboard.press("Backspace")
-                            page.wait_for_timeout(500)
-                            caption_locator.fill(sanitized_caption)
-                            page.wait_for_timeout(1000)
-                        else:
-                            textarea = page.locator("textarea").first
-                            if textarea.count() > 0:
-                                textarea.fill(sanitized_caption)
+                        self.fill_tiktok_caption_with_mentions(page, sanitized_caption, session_id=session_id)
                     except Exception as e:
                         console.print(f"[dim yellow]Catatan saat mengisi caption: {e}[/dim yellow]")
+
+                # 5.5. Tambahkan Keranjang Kuning / Tautan Produk TikTok Shop jika diaktifkan
+                if tiktok_product and tiktok_product.get("enabled"):
+                    console.print("[cyan]5.5. Memasang tautan produk Keranjang Kuning TikTok Shop...[/cyan]")
+                    self.apply_tiktok_product_link(page, tiktok_product, session_id=session_id)
+                    page.wait_for_timeout(2000)
+                    self.dismiss_popups(page)
 
                 # 6. Scroll ke bawah dan tunggu pemrosesan video selesai
                 console.print("[cyan]Menunggu pemrosesan video di TikTok...[/cyan]")
@@ -619,10 +933,60 @@ class TikTokUploader:
                         PublishTracker.update_step(session_id, "tiktok", "Tombol Post Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
 
-                # 8. Tunggu konfirmasi akhir upload
-                console.print("[cyan]Menunggu konfirmasi upload selesai...[/cyan]")
-                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 95, "Menunggu konfirmasi penerbitan TikTok Studio...", "step")
-                page.wait_for_timeout(10000)
+                # 8. Tunggu konfirmasi akhir upload & antisipasi popup konfirmasi ("Video sedang diproses", "Hak cipta", dsb)
+                console.print("[cyan]Menunggu verifikasi upload & mengantisipasi popup konfirmasi...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 92, "Menunggu konfirmasi penerbitan TikTok Studio & memeriksa popup...", "step")
+
+                max_wait_seconds = 45
+                poll_start = time.time()
+                is_published = False
+
+                while time.time() - poll_start < max_wait_seconds:
+                    page.wait_for_timeout(1500)
+
+                    # A. Cek dan tangani dialog konfirmasi popup (misal 'Video sedang diproses' -> 'Tetap posting')
+                    confirmed_popup = self.handle_post_confirmation_popups(page, session_id=session_id)
+                    if confirmed_popup:
+                        console.print("[bold green][TikTok] Berhasil mengonfirmasi popup posting ('Tetap posting / Post anyway')![/bold green]")
+                        PublishTracker.log(session_id, "tiktok", "Konfirmasi popup TikTok ('Tetap posting / Post anyway') berhasil ditekan!", "success")
+                        page.wait_for_timeout(2500)
+
+                    # B. Cek indikator sukses redirect URL
+                    current_url = page.url
+                    if "/tiktokstudio/content" in current_url or "/content" in current_url or "/manage" in current_url:
+                        console.print(f"[bold green][TikTok] Terdeteksi redirect sukses ke {current_url}![/bold green]")
+                        is_published = True
+                        break
+
+                    # C. Cek indikator sukses teks / modal sukses di halaman
+                    try:
+                        success_indicator = page.locator(
+                            "div:has-text('Your video has been uploaded'), div:has-text('Video Anda telah diunggah'), div:has-text('Manage your posts'), div:has-text('Kelola postingan'), div:has-text('Upload another video'), div:has-text('Unggah video lain'), button:has-text('Manage your posts'), button:has-text('Upload another video')"
+                        ).first
+                        if success_indicator.count() > 0 and success_indicator.is_visible():
+                            console.print("[bold green][TikTok] Terdeteksi notifikasi sukses upload![/bold green]")
+                            is_published = True
+                            break
+                    except Exception:
+                        pass
+
+                    # D. Jika tombol Post utama masih aktif di layar setelah 12 detik dan tidak ada popup, coba klik ulang
+                    elapsed = time.time() - poll_start
+                    if elapsed > 12 and not confirmed_popup:
+                        try:
+                            post_btn_retry = page.locator("button.Button__root--type-primary, button:text-is('Post'), button:text-is('Posting')").first
+                            if post_btn_retry.count() > 0 and post_btn_retry.is_visible():
+                                box = post_btn_retry.bounding_box()
+                                if box and box["x"] > 250:
+                                    console.print("[cyan]Mencoba klik ulang tombol Post...[/cyan]")
+                                    post_btn_retry.click(force=True)
+                                    page.wait_for_timeout(2000)
+                        except Exception:
+                            pass
+
+                if not is_published:
+                    self.handle_post_confirmation_popups(page, session_id=session_id)
+                    page.wait_for_timeout(2000)
 
                 try:
                     self._save_storage_state_safe(context, state_file)
@@ -729,6 +1093,11 @@ class TikTokUploader:
            - Click the topmost 'Use' / 'Gunakan' button.
         """
         from src.publish_tracker import PublishTracker
+
+        if str(sound_mode).lower() in ["none", "no_sound", "nosound", "no sound", "off", "disable", "disabled"]:
+            console.print("[bold cyan][No Sound] Mode No Sound dipilih: Melewati penambahan musik Poster/Carousel TikTok.[/bold cyan]")
+            PublishTracker.update_step(session_id, "tiktok", "Mode No Sound...", 65, "Melewati penambahan musik Poster/Carousel TikTok", "info")
+            return True
 
         try:
             console.print(f"[bold cyan]=== MEMILIH SOUND TIKTOK UNTUK POSTER/CAROUSEL (Mode: {sound_mode.upper()}) ===[/bold cyan]")
@@ -868,6 +1237,132 @@ class TikTokUploader:
 
         return "tab=photo" in page.url
 
+    def fill_tiktok_caption_with_mentions(
+        self,
+        page,
+        caption: str,
+        session_id: Optional[str] = None
+    ) -> bool:
+        """
+        Fills the TikTok caption / description editor with interactive auto-tagging support.
+        Detects any @username mentions in the caption.
+        Instead of typing '@username' directly as plain text, it:
+        1. Types text before the mention.
+        2. Clicks the '@ Mention' button in the caption typing toolbar.
+        3. Types the target username so TikTok searches for the account.
+        4. Selects the matched account from the suggestion dropdown (or presses Enter).
+        5. Continues with the rest of the caption seamlessly without unwanted double spaces.
+        """
+        from src.publish_tracker import PublishTracker
+
+        caption_editor = page.locator(
+            "div[contenteditable='true'], div.notranslate[contenteditable='true'], div[data-placeholder*='caption'], div[data-placeholder*='description'], div.public-DraftEditor-content, div[data-e2e='caption-editor']"
+        ).first
+
+        if caption_editor.count() == 0:
+            textarea = page.locator("textarea").first
+            if textarea.count() > 0:
+                textarea.fill(caption)
+            return True
+
+        caption_editor.click()
+        page.wait_for_timeout(300)
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        page.wait_for_timeout(300)
+
+        # Regex for mention tag @username (excluding email addresses)
+        mention_pattern = r'((?<![a-zA-Z0-9_])@[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*)'
+        has_mention = bool(re.search(mention_pattern, caption))
+
+        if not has_mention:
+            # Skenario biasa tanpa mention: ketik per baris dengan Shift+Enter
+            lines = caption.split("\n")
+            for idx, line in enumerate(lines):
+                if line:
+                    page.keyboard.type(line, delay=15)
+                if idx < len(lines) - 1:
+                    page.keyboard.press("Shift+Enter")
+                    page.wait_for_timeout(100)
+            page.wait_for_timeout(500)
+            return True
+
+        # Skenario dengan Mention (@): parser segmen interaktif
+        console.print("[cyan][Auto-Tag TikTok] Mendeteksi mention pengguna (@) di caption... Mengaktifkan alur klik @mention.[/cyan]")
+        PublishTracker.log(session_id, "tiktok", "Mendeteksi @mention di caption. Menjalankan auto-tag interaktif...", "info")
+
+        parts = re.split(mention_pattern, caption)
+        just_inserted_mention = False
+
+        for part in parts:
+            if not part:
+                continue
+
+            if part.startswith("@"):
+                uname = part[1:]
+                console.print(f"[bold cyan][Auto-Tag] Menambahkan mention: @{uname}...[/bold cyan]")
+                PublishTracker.log(session_id, "tiktok", f"Auto-tagging mention: @{uname}", "step")
+
+                # 1. Cari tombol @ Mention di toolbar editor TikTok Studio
+                mention_btn = page.locator(
+                    "#web-creation-caption-mention-button, button[aria-label='@mention'], button:has-text('Mention'), div[aria-label*='mention']"
+                ).first
+
+                if mention_btn.count() > 0 and mention_btn.is_visible():
+                    mention_btn.click()
+                    page.wait_for_timeout(350)
+                else:
+                    # Fallback jika tombol toolbar tidak terlihat: ketik @ manual untuk memicu dropdown
+                    page.keyboard.type("@", delay=50)
+                    page.wait_for_timeout(350)
+
+                # 2. Ketik nama pengguna (username)
+                page.keyboard.type(uname, delay=70)
+                page.wait_for_timeout(1300)
+
+                # 3. Tangani dropdown saran / suggestion popover
+                suggestions = page.locator("div[class*='mention-suggestion-item']")
+                if suggestions.count() > 0:
+                    matched = False
+                    for i in range(min(suggestions.count(), 6)):
+                        sugg = suggestions.nth(i)
+                        try:
+                            sugg_text = sugg.inner_text().lower()
+                            if uname.lower() in sugg_text:
+                                sugg.click()
+                                matched = True
+                                page.wait_for_timeout(600)
+                                break
+                        except Exception:
+                            pass
+                    if not matched:
+                        # Tekan Enter untuk memilih saran teratas / terfokus
+                        page.keyboard.press("Enter")
+                        page.wait_for_timeout(600)
+                else:
+                    # Jika tidak ada saran dari TikTok (misal username tidak ditemukan), tekan Space agar teks berlanjut
+                    page.keyboard.press("Space")
+                    page.wait_for_timeout(400)
+
+                just_inserted_mention = True
+            else:
+                # Jika segmen sebelumnya adalah mention, hindari spasi ganda (karena TikTok otomatis menyisipkan 1 spasi setelah mention)
+                if just_inserted_mention and part.startswith(" "):
+                    part = part[1:]
+                just_inserted_mention = False
+
+                if part:
+                    lines = part.split("\n")
+                    for idx, line in enumerate(lines):
+                        if line:
+                            page.keyboard.type(line, delay=15)
+                        if idx < len(lines) - 1:
+                            page.keyboard.press("Shift+Enter")
+                            page.wait_for_timeout(100)
+
+        page.wait_for_timeout(800)
+        return True
+
     def upload_photos(
         self,
         photo_paths: list,
@@ -878,7 +1373,8 @@ class TikTokUploader:
         sound_mode: str = "favorite",
         tiktok_sound_query: Optional[str] = None,
         category_label: str = "Carousel",
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        tiktok_product: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Uploads Poster (single photo) or Carousel (multiple photos) to TikTok Studio.
@@ -921,8 +1417,19 @@ class TikTokUploader:
                 user_agent=DEFAULT_USER_AGENT,
                 no_viewport=True if not self.headless else False,
                 viewport={"width": 1440, "height": 900} if self.headless else None,
-                storage_state=safe_state
+                storage_state=safe_state,
+                locale="id-ID",
+                timezone_id="Asia/Jakarta"
             )
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                window.navigator.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['id-ID', 'id', 'en-US', 'en']
+                });
+            """)
             page = context.new_page()
 
             try:
@@ -1000,17 +1507,9 @@ class TikTokUploader:
                         pass
 
                 # Description / Caption
-                desc_loc = page.locator(
-                    "div[contenteditable='true'], div.notranslate[contenteditable='true'], div[data-placeholder*='description'], textarea"
-                ).first
-                if desc_loc.count() > 0:
+                if sanitized_caption:
                     try:
-                        desc_loc.click()
-                        page.wait_for_timeout(400)
-                        page.keyboard.press("Control+A")
-                        page.keyboard.press("Backspace")
-                        desc_loc.fill(sanitized_caption)
-                        page.wait_for_timeout(800)
+                        self.fill_tiktok_caption_with_mentions(page, sanitized_caption, session_id=session_id)
                     except Exception as e:
                         console.print(f"[dim yellow]Catatan saat mengisi deskripsi: {e}[/dim yellow]")
 
@@ -1022,6 +1521,13 @@ class TikTokUploader:
                     session_id=session_id
                 )
                 self.dismiss_popups(page)
+
+                # 4.5. Tambahkan Keranjang Kuning / Tautan Produk TikTok Shop jika diaktifkan
+                if tiktok_product and tiktok_product.get("enabled"):
+                    console.print("[cyan]4.5. Memasang tautan produk Keranjang Kuning TikTok Shop...[/cyan]")
+                    self.apply_tiktok_product_link(page, tiktok_product, session_id=session_id)
+                    page.wait_for_timeout(2000)
+                    self.dismiss_popups(page)
 
                 # 5. Scroll ke bawah dan klik Post / Save Draft
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -1079,10 +1585,46 @@ class TikTokUploader:
                         PublishTracker.update_step(session_id, "tiktok", "Tombol Post Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
 
-                # 6. Tunggu konfirmasi akhir
-                console.print("[cyan]Menunggu konfirmasi upload selesai...[/cyan]")
-                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 95, "Menunggu konfirmasi penerbitan TikTok Studio...", "step")
-                page.wait_for_timeout(10000)
+                # 6. Tunggu konfirmasi akhir upload & antisipasi dialog konfirmasi jika muncul
+                console.print("[cyan]Menunggu verifikasi upload & mengantisipasi popup konfirmasi...[/cyan]")
+                PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 92, "Menunggu konfirmasi penerbitan TikTok Studio & memeriksa popup...", "step")
+
+                max_wait_seconds = 45
+                poll_start = time.time()
+                is_published = False
+
+                while time.time() - poll_start < max_wait_seconds:
+                    page.wait_for_timeout(1500)
+
+                    # A. Cek popup konfirmasi
+                    confirmed_popup = self.handle_post_confirmation_popups(page, session_id=session_id)
+                    if confirmed_popup:
+                        console.print(f"[bold green][TikTok] Berhasil mengonfirmasi popup posting {category_label}![/bold green]")
+                        PublishTracker.log(session_id, "tiktok", f"Konfirmasi popup posting {category_label} berhasil ditekan!", "success")
+                        page.wait_for_timeout(2500)
+
+                    # B. Cek redirect URL
+                    current_url = page.url
+                    if "/tiktokstudio/content" in current_url or "/content" in current_url or "/manage" in current_url:
+                        console.print(f"[bold green][TikTok] Terdeteksi redirect sukses ke {current_url}![/bold green]")
+                        is_published = True
+                        break
+
+                    # C. Cek banner / teks sukses
+                    try:
+                        success_indicator = page.locator(
+                            "div:has-text('Your photo has been uploaded'), div:has-text('Foto Anda telah diunggah'), div:has-text('Your video has been uploaded'), div:has-text('Video Anda telah diunggah'), div:has-text('Manage your posts'), div:has-text('Kelola postingan'), div:has-text('Upload another video'), div:has-text('Unggah video lain'), button:has-text('Manage your posts'), button:has-text('Upload another video')"
+                        ).first
+                        if success_indicator.count() > 0 and success_indicator.is_visible():
+                            console.print(f"[bold green][TikTok] Terdeteksi notifikasi sukses upload {category_label}![/bold green]")
+                            is_published = True
+                            break
+                    except Exception:
+                        pass
+
+                if not is_published:
+                    self.handle_post_confirmation_popups(page, session_id=session_id)
+                    page.wait_for_timeout(2000)
 
                 try:
                     self._save_storage_state_safe(context, state_file)

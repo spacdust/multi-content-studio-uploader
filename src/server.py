@@ -4,6 +4,7 @@ import re
 import json
 import time
 import asyncio
+import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -13,6 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from rich.console import Console
+
+console = Console(highlight=False, legacy_windows=False)
 
 from src.config import (
     CONTENT_DIR,
@@ -20,7 +24,9 @@ from src.config import (
     ACCOUNTS_DIR,
     LOGS_DIR,
     get_account_content_dir,
-    get_account_dir
+    get_account_dir,
+    get_account_state_file,
+    DEFAULT_USER_AGENT
 )
 from src.account_manager import AccountManager
 from src.auth_manager import AuthManager
@@ -34,12 +40,21 @@ from src.caption_generator import (
 from src.tiktok_uploader import TikTokUploader
 from src.instagram_uploader import InstagramUploader
 from src.publish_tracker import PublishTracker
+from src.scheduler import AutoScheduler
 
 app = FastAPI(
     title="Content Uploader Studio API",
     version="1.0.0",
     description="Backend API for Multi-Account Social Media Content Pipeline"
 )
+
+@app.on_event("startup")
+def on_startup():
+    AutoScheduler.start()
+
+@app.on_event("shutdown")
+def on_shutdown():
+    AutoScheduler.stop()
 
 # CORS middleware for dev mode
 app.add_middleware(
@@ -69,11 +84,14 @@ class SaveCaptionRequest(BaseModel):
     date: str
     item_name: str
     caption: str
+    tiktok_mentions: Optional[str] = ""
+    instagram_mentions: Optional[str] = ""
     as_draft: Optional[bool] = False
     sound_mode: Optional[str] = "favorite"
     sound_query: Optional[str] = ""
     sound_db: Optional[str] = "-7"
     scheduled_time: Optional[str] = None
+    tiktok_product: Optional[Dict[str, Any]] = None
 
 class UploadItemRequest(BaseModel):
     account: str
@@ -88,6 +106,24 @@ class DeleteItemRequest(BaseModel):
     date: str
     item_name: str
     item_key: Optional[str] = None
+
+class ReorderQueueRequest(BaseModel):
+    account: str
+    ordered_keys: List[str]
+
+class BatchScheduleItem(BaseModel):
+    category: str
+    date: str
+    item_name: str
+    scheduled_time: Optional[str] = None
+
+class BatchScheduleRequest(BaseModel):
+    account: str
+    items: List[BatchScheduleItem]
+
+class BatchClearScheduleRequest(BaseModel):
+    account: str
+    items: Optional[List[BatchScheduleItem]] = None
 
 class SettingsRequest(BaseModel):
     llm_base_url: str
@@ -116,6 +152,10 @@ class CreateAccountRequest(BaseModel):
 class ImportTikTokSessionRequest(BaseModel):
     account: str
     session_data: str
+
+class DisconnectAccountRequest(BaseModel):
+    account: str
+    platform: str = "tiktok"
 
 class UpdateLinksRequest(BaseModel):
     account: str
@@ -310,6 +350,13 @@ def refresh_tiktok_session_endpoint(req: OpenStudioRequest):
     else:
         raise HTTPException(status_code=400, detail=msg)
 
+@app.post("/api/accounts/disconnect")
+@app.post("/api/accounts/logout")
+def disconnect_account_platform(req: DisconnectAccountRequest):
+    """Cleanly disconnects and removes stored sessions and profile caches for a platform."""
+    result = AccountManager.clear_platform_session(req.account, req.platform)
+    return result
+
 @app.post("/api/accounts/open-tiktok-studio")
 def open_tiktok_studio(req: OpenStudioRequest):
     """Spawns an interactive maximized headed browser directly to TikTok Studio loaded with the specific account's session."""
@@ -334,6 +381,92 @@ def open_tiktok_studio(req: OpenStudioRequest):
         "status": "started",
         "message": f"Membuka TikTok Studio dengan sesi akun '{acc_name}' di jendela browser maximized..."
     }
+
+@app.get("/api/tiktok/products")
+def get_tiktok_products(account: str = Query(...), keyword: Optional[str] = Query("")):
+    """
+    Fetches or searches TikTok Shop products for the specified account.
+    Returns product_id, title, format_price, stock_num, cover_url.
+    """
+    try:
+        import requests
+        state_file = get_account_state_file(account, "tiktok")
+        if not state_file.exists():
+            return {
+                "status": "error",
+                "message": f"Sesi login TikTok untuk akun '{account}' belum ada.",
+                "products": []
+            }
+        
+        with open(state_file, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        
+        cookies = {}
+        for c in state.get("cookies", []):
+            dom = c.get("domain", "")
+            if ".tiktok.com" in dom or "shop.tiktok.com" in dom:
+                cookies[c["name"]] = c["value"]
+                
+        if not cookies.get("sessionid") and not cookies.get("sessionid_ss"):
+            return {
+                "status": "error",
+                "message": f"Akun '{account}' belum login ke TikTok Studio.",
+                "products": []
+            }
+
+        search_kw = (keyword or "").strip()
+        url = (
+            f"https://shop.tiktok.com/api/v1/streamer_desktop/selection/search?"
+            f"search_type=3&keyword={requests.utils.quote(search_kw)}&origin=2&cursor=0&count=30&aid=1180"
+        )
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Referer": "https://www.tiktok.com/",
+            "Accept": "application/json, text/plain, */*",
+        }
+        res = requests.get(url, cookies=cookies, headers=headers, timeout=12)
+        if res.status_code != 200:
+            return {
+                "status": "error",
+                "message": f"TikTok Shop merespons HTTP {res.status_code}",
+                "products": []
+            }
+        
+        payload = res.json()
+        if payload.get("code") != 0:
+            return {
+                "status": "error",
+                "message": payload.get("msg") or "Gagal memuat produk dari TikTok Shop.",
+                "products": []
+            }
+        
+        raw_products = payload.get("data", {}).get("products", [])
+        products = []
+        for p in raw_products:
+            cover = p.get("cover") or {}
+            thumb_urls = cover.get("thumb_url_list") or cover.get("url_list") or []
+            cover_url = thumb_urls[0] if thumb_urls else ""
+            products.append({
+                "product_id": str(p.get("product_id", "")),
+                "title": p.get("title", ""),
+                "format_price": p.get("format_available_price", ""),
+                "stock_num": p.get("stock_num", 0),
+                "cover_url": cover_url,
+                "source": p.get("source", "Toko saya")
+            })
+
+        return {
+            "status": "success",
+            "count": len(products),
+            "products": products
+        }
+    except Exception as ex:
+        return {
+            "status": "error",
+            "message": f"Terjadi kesalahan saat memuat produk: {str(ex)}",
+            "products": []
+        }
+
 
 @app.post("/api/accounts/open-instagram")
 def open_instagram_studio(req: OpenStudioRequest):
@@ -431,6 +564,23 @@ def test_llm_settings(req: SettingsRequest):
             "message": f"Koneksi gagal: {str(e)}"
         }
 
+@app.get("/api/scheduler/status")
+def get_scheduler_status():
+    """Returns the current status of the background auto-scheduler service."""
+    return AutoScheduler.get_status()
+
+@app.post("/api/scheduler/toggle")
+def toggle_scheduler():
+    """Toggles AutoScheduler on/off."""
+    AutoScheduler._is_active = not AutoScheduler._is_active
+    return {"status": "success", "is_active": AutoScheduler._is_active}
+
+@app.post("/api/scheduler/check")
+def trigger_scheduler_check():
+    """Manually triggers an immediate scan and execution of due scheduled items."""
+    AutoScheduler.check_and_execute_due_items()
+    return {"status": "success", "message": "Pengecekan antrean jadwal publikasi berhasil dijalankan!"}
+
 @app.get("/api/content")
 def get_content(account: Optional[str] = None):
     """Scans and returns all content items per account, date, and category."""
@@ -460,6 +610,7 @@ def get_content(account: Optional[str] = None):
             "status": item["status"],
             "created_at": item.get("created_at", 0.0),
             "mtime": item.get("mtime", 0.0),
+            "custom_order": item.get("custom_order", 999999),
             "media_url": first_media_url,
             "slide_urls": slide_urls,
             "slides": [s.name for s in item["slides"]] if "slides" in item and item["slides"] else []
@@ -580,10 +731,13 @@ def save_caption(req: SaveCaptionRequest):
     default_db = "-7" if req.category == "Video" else "0"
     meta_data.update({
         "caption": req.caption,
+        "tiktok_mentions": (req.tiktok_mentions or "").strip(),
+        "instagram_mentions": (req.instagram_mentions or "").strip(),
         "sound_mode": req.sound_mode or "favorite",
         "sound_query": req.sound_query if req.sound_query is not None else "",
         "sound_db": req.sound_db if (req.sound_db is not None and req.sound_db != "") else default_db,
         "scheduled_time": req.scheduled_time,
+        "tiktok_product": req.tiktok_product if req.tiktok_product is not None else meta_data.get("tiktok_product", {"enabled": False}),
         "platforms": ["tiktok", "instagram", "facebook"],
         "as_draft": False
     })
@@ -607,6 +761,168 @@ def delete_content_item(req: DeleteItemRequest):
         raise HTTPException(status_code=404, detail="File atau antrean tidak ditemukan.")
     return {"status": "success", "message": f"Konten '{req.item_name}' berhasil dihapus dari antrean!"}
 
+@app.post("/api/content/reorder")
+def reorder_content_queue(req: ReorderQueueRequest):
+    """Saves custom order of content items in the upload queue for an account."""
+    ok = ContentManager.save_custom_order(req.account, req.ordered_keys)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Gagal menyimpan urutan antrean.")
+    return {"status": "success", "message": "Urutan antrean berhasil disimpan!", "ordered_keys": req.ordered_keys}
+
+def _find_item_meta_json(account: str, category: str, date: str, item_name: str) -> Optional[Path]:
+    acc_content = CONTENT_DIR / account / category / date
+    if not acc_content.exists():
+        return None
+    
+    if category in ["Video", "Poster"]:
+        stem = Path(item_name).stem
+        target_json = acc_content / f"{stem}.json"
+        if target_json.exists():
+            return target_json
+        for f in acc_content.iterdir():
+            if f.is_file() and f.stem == stem:
+                return acc_content / f"{stem}.json"
+        return target_json
+    else: # Carousel
+        clean_name = re.sub(r'\s*\(\d+\s+Slides\)$', '', item_name).strip()
+        carousel_folder = acc_content / clean_name
+        if not carousel_folder.exists() and acc_content.exists():
+            for sub in acc_content.iterdir():
+                if sub.is_dir() and (sub.name == clean_name or sub.name in item_name or clean_name in sub.name):
+                    carousel_folder = sub
+                    break
+        carousel_folder.mkdir(parents=True, exist_ok=True)
+        return carousel_folder / "meta.json"
+
+@app.post("/api/content/batch-schedule")
+def batch_schedule_content(req: BatchScheduleRequest):
+    """Sets scheduled_time for multiple content items in sequential order."""
+    updated_count = 0
+    for it in req.items:
+        meta_json_path = _find_item_meta_json(req.account, it.category, it.date, it.item_name)
+        if not meta_json_path:
+            continue
+        
+        meta_data = {}
+        if meta_json_path.exists():
+            try:
+                with open(meta_json_path, "r", encoding="utf-8") as f:
+                    meta_data = json.load(f)
+            except Exception:
+                pass
+        
+        clean_sched_time = (it.scheduled_time or "").strip() if it.scheduled_time else None
+        meta_data["scheduled_time"] = clean_sched_time
+        meta_json_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(meta_json_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, indent=2)
+        updated_count += 1
+
+    # Notify AutoScheduler to immediately pick up newly scheduled items
+    try:
+        from src.scheduler import AutoScheduler
+        AutoScheduler.check_and_execute_due_items()
+    except Exception as e:
+        console.print(f"[yellow]AutoScheduler check warning: {e}[/yellow]")
+
+    return {
+        "status": "success",
+        "updated_count": updated_count,
+        "message": f"Berhasil menjadwalkan {updated_count} konten secara bertahap!"
+    }
+
+@app.post("/api/content/batch-clear-schedule")
+def batch_clear_schedule(req: BatchClearScheduleRequest):
+    """Clears scheduled_time for specified items (or all pending items in account)."""
+    cleared_count = 0
+    items_to_clear = req.items or []
+    
+    if not items_to_clear:
+        scanned = ContentManager.scan_content(req.account)
+        for s in scanned:
+            items_to_clear.append(BatchScheduleItem(
+                category=s["category"],
+                date=s["date"],
+                item_name=s["name"],
+                scheduled_time=None
+            ))
+
+    for it in items_to_clear:
+        meta_json_path = _find_item_meta_json(req.account, it.category, it.date, it.item_name)
+        if not meta_json_path or not meta_json_path.exists():
+            continue
+        try:
+            with open(meta_json_path, "r", encoding="utf-8") as f:
+                meta_data = json.load(f)
+            if "scheduled_time" in meta_data and meta_data["scheduled_time"]:
+                meta_data["scheduled_time"] = None
+                with open(meta_json_path, "w", encoding="utf-8") as f:
+                    json.dump(meta_data, f, indent=2)
+                cleared_count += 1
+        except Exception:
+            pass
+
+    return {
+        "status": "success",
+        "cleared_count": cleared_count,
+        "message": f"Berhasil menghapus jadwal pada {cleared_count} konten."
+    }
+
+def _trigger_background_auto_caption(
+    account: str,
+    category: str,
+    date: str,
+    item_name: str,
+    media_path: Path,
+    target_dir: Path,
+    is_carousel: bool
+):
+    """
+    Generates high-quality AI caption in background thread and saves directly to meta.json and caption.txt.
+    """
+    def worker():
+        try:
+            time.sleep(0.5)  # Ensure file handles are closed
+            console.print(f"[bold cyan][Auto-Caption][/bold cyan] Memulai AI multimodal caption untuk {category} '{item_name}' ({account})...")
+            caption = CaptionGenerator.generate_caption(
+                item_name=item_name,
+                category=category,
+                account_name=account,
+                media_path=media_path
+            )
+            if not caption or not caption.strip():
+                return
+
+            if is_carousel:
+                txt_file = media_path / "caption.txt"
+                json_file = media_path / "meta.json"
+            else:
+                txt_file = target_dir / f"{Path(item_name).stem}.txt"
+                json_file = target_dir / f"{Path(item_name).stem}.json"
+
+            # 1. Write caption.txt
+            with open(txt_file, "w", encoding="utf-8") as f:
+                f.write(caption.strip())
+
+            # 2. Update meta.json
+            meta_data = {}
+            if json_file.exists():
+                try:
+                    with open(json_file, "r", encoding="utf-8") as f:
+                        meta_data = json.load(f)
+                except Exception:
+                    pass
+
+            meta_data["caption"] = caption.strip()
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(meta_data, f, indent=2)
+
+            console.print(f"[bold green][Auto-Caption][/bold green] Caption AI otomatis berhasil dibuat & disimpan untuk {category} '{item_name}'!")
+        except Exception as ex:
+            console.print(f"[dim yellow][Auto-Caption Warning] Gagal generate caption otomatis: {ex}[/dim yellow]")
+
+    threading.Thread(target=worker, daemon=True).start()
+
 @app.post("/api/content/upload-media")
 async def upload_content_media(
     account: str = Form(...),
@@ -618,9 +934,11 @@ async def upload_content_media(
 ):
     """Uploads single video/poster or ordered multi-image carousel with optional scheduling."""
     target_dir = CONTENT_DIR / account / category / date
+    clean_sched_time = scheduled_time if (scheduled_time and isinstance(scheduled_time, str) and scheduled_time.strip()) else None
 
     if category == "Carousel":
-        c_name = carousel_name.strip() if (carousel_name and carousel_name.strip() and not carousel_name.lower().startswith("carousel ") and not carousel_name.lower().startswith("carousel-")) else ContentManager.get_next_item_name(account, "Carousel", date)
+        clean_carousel_name = carousel_name if (carousel_name and isinstance(carousel_name, str)) else None
+        c_name = clean_carousel_name.strip() if (clean_carousel_name and clean_carousel_name.strip() and not clean_carousel_name.lower().startswith("carousel ") and not clean_carousel_name.lower().startswith("carousel-")) else ContentManager.get_next_item_name(account, "Carousel", date)
         target_folder = target_dir / c_name
         target_folder.mkdir(parents=True, exist_ok=True)
 
@@ -637,7 +955,7 @@ async def upload_content_media(
         # Write initial meta.json with blank caption and remove any lingering .txt file
         meta_data = {
             "caption": "",
-            "scheduled_time": scheduled_time if scheduled_time else None,
+            "scheduled_time": clean_sched_time,
             "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": "0",
@@ -653,6 +971,17 @@ async def upload_content_media(
                 txt_file.unlink()
             except Exception:
                 pass
+
+        # Trigger automatic background AI caption generation
+        _trigger_background_auto_caption(
+            account=account,
+            category="Carousel",
+            date=date,
+            item_name=c_name,
+            media_path=target_folder,
+            target_dir=target_dir,
+            is_carousel=True
+        )
 
         return {
             "status": "success",
@@ -679,7 +1008,7 @@ async def upload_content_media(
         meta_path = target_dir / f"{target_path.stem}.json"
         meta_data = {
             "caption": "",
-            "scheduled_time": scheduled_time if scheduled_time else None,
+            "scheduled_time": clean_sched_time,
             "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": default_db,
@@ -696,6 +1025,17 @@ async def upload_content_media(
                 txt_path.unlink()
             except Exception:
                 pass
+
+        # Trigger automatic background AI caption generation
+        _trigger_background_auto_caption(
+            account=account,
+            category=category,
+            date=date,
+            item_name=saved_filename,
+            media_path=target_path,
+            target_dir=target_dir,
+            is_carousel=False
+        )
 
         return {
             "status": "success",
@@ -846,6 +1186,86 @@ async def stream_upload_progress(session_id: str = Query(...)):
             await asyncio.sleep(0.5)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+# Background Link Finder Daemon Loop (15-Minute Cooldown Auto Discovery)
+def _auto_link_finder_daemon_loop():
+    """
+    Background daemon loop that checks uploaded content items every 60 seconds.
+    If an item has been uploaded >= 15 minutes (900 seconds) and is missing post links,
+    it automatically performs LinkFinder discovery and saves the resulting URLs.
+    """
+    from src.link_finder import LinkFinder
+    last_scanned = {}
+
+    while True:
+        try:
+            time.sleep(60)
+            now = time.time()
+            accounts = [acc["name"] for acc in AccountManager.list_accounts()]
+
+            for acc in accounts:
+                history = ContentManager.load_history(acc)
+                if not history:
+                    continue
+
+                for item_key, data in history.items():
+                    uploaded_platforms = data.get("uploaded_platforms", [])
+                    if not uploaded_platforms:
+                        continue
+
+                    post_urls = data.get("post_urls", {})
+                    missing_platforms = [p for p in uploaded_platforms if not post_urls.get(p)]
+                    if not missing_platforms:
+                        continue
+
+                    timestamps = data.get("timestamps", {})
+                    latest_ts = 0
+                    for ts_str in timestamps.values():
+                        try:
+                            clean_ts = str(ts_str).replace("T", " ")[:19]
+                            parsed_t = time.mktime(time.strptime(clean_ts, "%Y-%m-%d %H:%M:%S"))
+                            if parsed_t > latest_ts:
+                                latest_ts = parsed_t
+                        except Exception:
+                            pass
+
+                    if latest_ts == 0:
+                        continue
+
+                    elapsed = now - latest_ts
+                    # Check if at least 15 minutes (900s) have passed
+                    if elapsed >= 900:
+                        last_scan_t = last_scanned.get(f"{acc}:{item_key}", 0)
+                        if (now - last_scan_t) >= 600:
+                            last_scanned[f"{acc}:{item_key}"] = now
+                            console.print(f"[bold cyan][Auto-Link Discovery][/bold cyan] Memulai pencarian link otomatis untuk '{item_key}' ({acc}) setelah cooldown 15m...")
+
+                            caption = ""
+                            category = item_key.split("/")[0] if "/" in item_key else ""
+                            try:
+                                items = ContentManager.scan_content(acc)
+                                target = next((it for it in items if it.get("item_key") == item_key), None)
+                                if target:
+                                    caption = target.get("caption", "") or target.get("name", "")
+                            except Exception:
+                                pass
+
+                            found_res = LinkFinder.find_all_links(
+                                account_name=acc,
+                                item_key=item_key,
+                                caption=caption,
+                                category=category,
+                                platforms=missing_platforms,
+                                force_refresh=False
+                            )
+                            if found_res.get("data", {}).get("urls"):
+                                console.print(f"[bold green][Auto-Link Discovery][/bold green] Berhasil menemukan link postingan untuk '{item_key}' ({acc})!")
+        except Exception as ex:
+            console.print(f"[dim yellow][Auto-Link Daemon Warning] {ex}[/dim yellow]")
+
+@app.on_event("startup")
+def on_app_startup():
+    threading.Thread(target=_auto_link_finder_daemon_loop, daemon=True).start()
 
 # Serve React static build if exists
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"

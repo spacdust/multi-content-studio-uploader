@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ContentCard from './ContentCard';
 
 export default function ContentFeedList({
@@ -10,8 +10,13 @@ export default function ContentFeedList({
   filterDate,
   setFilterDate,
   onToast,
+  onMoveItem,
+  onDragReorder,
 }) {
-  if (loadingContent) {
+  const [draggedKey, setDraggedKey] = useState(null);
+  const [dragOverKey, setDragOverKey] = useState(null);
+
+  if (loadingContent && items.length === 0) {
     return (
       <div className="flex flex-col gap-3 py-12 text-center text-zinc-500 font-mono text-xs">
         <span className="animate-spin inline-block w-5 h-5 border-2 border-zinc-700 border-t-emerald-400 rounded-full mx-auto" />
@@ -48,14 +53,27 @@ export default function ContentFeedList({
 
   return (
     <div className="flex flex-col gap-3">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <ContentCard
           key={item.item_key}
           item={item}
+          index={index}
+          totalItems={items.length}
           isSelected={item.item_key === selectedItemKey}
           onSelect={onSelectItem}
           onDeleteClick={onDeleteClick}
           onToast={onToast}
+          onMoveItem={onMoveItem}
+          isDragging={draggedKey === item.item_key}
+          isDragOver={dragOverKey === item.item_key}
+          onDragStart={(key) => setDraggedKey(key)}
+          onDragOver={(key) => setDragOverKey(key)}
+          onDragLeave={() => setDragOverKey(null)}
+          onDrop={(srcKey, tgtKey) => {
+            setDraggedKey(null);
+            setDragOverKey(null);
+            if (onDragReorder) onDragReorder(srcKey, tgtKey);
+          }}
         />
       ))}
     </div>

@@ -44,44 +44,21 @@ class AuthManager:
     @staticmethod
     def _save_storage_state_safe(context, state_file: Path) -> bool:
         """
-        Safely saves storage_state by MERGING rotated cookies into existing state_file,
-        preserving all authentic companion tokens (ttwid, odin_tt, store-idc, passport tokens).
+        Safely saves storage_state using Playwright's native context.storage_state(),
+        preserving all domain-specific cookies, security tokens, and localStorage origins.
         """
         try:
             new_cookies = context.cookies()
             has_session = any(
-                c.get("name") in ["sessionid", "sessionid_ss", "sid_tt", "c_user", "ds_user_id"] and len(c.get("value", "")) > 5
+                c.get("name") in ["sessionid", "sessionid_ss", "sid_tt", "c_user", "ds_user_id"] and len(c.get("value", "")) > 3
                 for c in new_cookies
             )
             if not has_session:
                 return False
 
-            existing_cookies_map = {}
-            if state_file.exists() and state_file.stat().st_size > 50:
-                try:
-                    with open(state_file, "r", encoding="utf-8") as f:
-                        old_state = json.load(f)
-                    for c in old_state.get("cookies", []):
-                        if c.get("name"):
-                            existing_cookies_map[c["name"]] = c
-                except Exception:
-                    pass
-
-            for c in new_cookies:
-                name = c.get("name")
-                if name:
-                    c["sameSite"] = AuthManager._normalize_samesite(c.get("sameSite"))
-                    existing_cookies_map[name] = c
-
-            state = {
-                "cookies": list(existing_cookies_map.values()),
-                "origins": []
-            }
-
             state_file.parent.mkdir(parents=True, exist_ok=True)
             tmp_file = state_file.with_suffix(".tmp")
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(state, f, indent=2)
+            context.storage_state(path=str(tmp_file))
             tmp_file.replace(state_file)
             return True
         except Exception:
@@ -95,7 +72,10 @@ class AuthManager:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cookies = data.get("cookies", [])
-                    return any(c.get("name") in ["sessionid", "sessionid_ss", "sid_tt", "passport_auth_status", "uid_tt", "sid_guard"] for c in cookies)
+                    return any(
+                        c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                        for c in cookies
+                    )
             except Exception:
                 pass
         return False
@@ -188,6 +168,10 @@ class AuthManager:
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
+                });
+                window.navigator.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['id-ID', 'id', 'en-US', 'en']
                 });
             """)
             page = context.new_page()
@@ -525,9 +509,10 @@ class AuthManager:
                             c_name = str(item["name"]).strip()
                             c_val = str(item["value"]).strip()
                             if c_name and c_val:
-                                domain = item.get("domain") or ".tiktok.com"
-                                if not domain.startswith("."):
-                                    domain = "." + domain
+                                if c_name in ["delay_guest_mode_vid", "perf_feed_cache"]:
+                                    continue
+                                raw_domain = item.get("domain") or ".tiktok.com"
+                                domain = ".tiktok.com" if "tiktok.com" in raw_domain else raw_domain
                                 exp = item.get("expirationDate") or item.get("expires")
                                 try:
                                     exp = int(float(exp)) if exp else now_ts
@@ -541,7 +526,7 @@ class AuthManager:
                                     "expires": exp,
                                     "httpOnly": item.get("httpOnly", c_name in ["sessionid", "sessionid_ss", "sid_tt", "sid_guard"]),
                                     "secure": item.get("secure", True),
-                                    "sameSite": item.get("sameSite", "None") or "None"
+                                    "sameSite": AuthManager._normalize_samesite(item.get("sameSite", "None"))
                                 }
             except Exception:
                 is_json = False
@@ -556,6 +541,9 @@ class AuthManager:
                 parts = line.split("\t")
                 if len(parts) >= 7:
                     dom, _, path, sec, exp, name, val = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]
+                    if name.strip() in ["delay_guest_mode_vid", "perf_feed_cache"]:
+                        continue
+                    domain = ".tiktok.com" if "tiktok.com" in dom else dom.strip()
                     try:
                         exp_ts = int(float(exp)) if exp else now_ts
                     except Exception:
@@ -563,10 +551,10 @@ class AuthManager:
                     cookies_map[name.strip()] = {
                         "name": name.strip(),
                         "value": val.strip(),
-                        "domain": dom.strip(),
+                        "domain": domain,
                         "path": path.strip() or "/",
                         "expires": exp_ts,
-                        "httpOnly": name in ["sessionid", "sessionid_ss", "sid_tt", "sid_guard"],
+                        "httpOnly": name.strip() in ["sessionid", "sessionid_ss", "sid_tt", "sid_guard"],
                         "secure": sec.lower() == "true",
                         "sameSite": "None"
                     }
@@ -580,6 +568,8 @@ class AuthManager:
                 k = k.strip()
                 v = v.strip()
                 if k and v:
+                    if k in ["delay_guest_mode_vid", "perf_feed_cache"]:
+                        continue
                     cookies_map[k] = {
                         "name": k,
                         "value": v,
@@ -617,37 +607,35 @@ class AuthManager:
         session_val = session_cookie["value"]
         # Ensure companion essential cookies exist
         if "sessionid" not in cookies_map:
-            cookies_map["sessionid"] = {**session_cookie, "name": "sessionid"}
+            cookies_map["sessionid"] = {**session_cookie, "name": "sessionid", "domain": ".tiktok.com"}
         if "sessionid_ss" not in cookies_map:
-            cookies_map["sessionid_ss"] = {**session_cookie, "name": "sessionid_ss"}
+            cookies_map["sessionid_ss"] = {**session_cookie, "name": "sessionid_ss", "domain": ".tiktok.com"}
         if "sid_tt" not in cookies_map:
-            cookies_map["sid_tt"] = {**session_cookie, "name": "sid_tt"}
+            cookies_map["sid_tt"] = {**session_cookie, "name": "sid_tt", "domain": ".tiktok.com"}
         if "sid_guard" not in cookies_map:
-            cookies_map["sid_guard"] = {**session_cookie, "name": "sid_guard"}
+            cookies_map["sid_guard"] = {**session_cookie, "name": "sid_guard", "domain": ".tiktok.com"}
 
-        # Region fallback
-        if "store-idc" not in cookies_map:
-            cookies_map["store-idc"] = {
-                "name": "store-idc",
-                "value": "alisg",
-                "domain": ".tiktok.com",
-                "path": "/",
-                "expires": now_ts,
-                "httpOnly": True,
-                "secure": False,
-                "sameSite": "None"
-            }
-        if "store-country-code" not in cookies_map:
-            cookies_map["store-country-code"] = {
-                "name": "store-country-code",
-                "value": "id",
-                "domain": ".tiktok.com",
-                "path": "/",
-                "expires": now_ts,
-                "httpOnly": True,
-                "secure": False,
-                "sameSite": "None"
-            }
+        # Region fallback & essentials
+        cookies_map["store-idc"] = {
+            "name": "store-idc",
+            "value": "alisg",
+            "domain": ".tiktok.com",
+            "path": "/",
+            "expires": now_ts,
+            "httpOnly": True,
+            "secure": False,
+            "sameSite": "None"
+        }
+        cookies_map["store-country-code"] = {
+            "name": "store-country-code",
+            "value": "id",
+            "domain": ".tiktok.com",
+            "path": "/",
+            "expires": now_ts,
+            "httpOnly": True,
+            "secure": False,
+            "sameSite": "None"
+        }
 
         cookies_list = list(cookies_map.values())
         state_data = {
@@ -660,8 +648,10 @@ class AuthManager:
         state_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with open(state_file, "w", encoding="utf-8") as f:
+            tmp_file = state_file.with_suffix(".tmp")
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(state_data, f, indent=2)
+            tmp_file.replace(state_file)
 
             # Trigger non-blocking background profile & avatar fetch
             import threading
@@ -680,51 +670,22 @@ class AuthManager:
         """
         AccountManager.create_or_get_account(account_name)
         state_file = get_account_state_file(account_name, "tiktok")
-        acc_dir = get_account_dir(account_name)
-        profile_dir = acc_dir / "tiktok_browser_profile"
-        profile_dir.mkdir(parents=True, exist_ok=True)
+        safe_state = get_safe_storage_state(state_file)
 
         console.print(f"[bold yellow]=== MEMBUKA BROWSER VISUAL LOGIN TIKTOK ===[/bold yellow]")
         console.print(f"Target Akun: [magenta]{account_name}[/magenta]")
         console.print("[cyan]Jendela browser sedang dibuka di layar Anda. Silakan scan QR atau login dengan Google/Email/Nomor HP.[/cyan]")
 
         with sync_playwright() as p:
-            try:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=str(profile_dir),
-                    channel="chrome",
-                    headless=False,
-                    user_agent=DEFAULT_USER_AGENT,
-                    no_viewport=True,
-                    viewport=None,
-                    locale="id-ID",
-                    timezone_id="Asia/Jakarta",
-                    args=[
-                        "--start-maximized",
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-sandbox",
-                        "--disable-infobars",
-                        "--no-default-browser-check"
-                    ],
-                    ignore_default_args=["--enable-automation"]
-                )
-            except Exception:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=str(profile_dir),
-                    headless=False,
-                    user_agent=DEFAULT_USER_AGENT,
-                    no_viewport=True,
-                    viewport=None,
-                    locale="id-ID",
-                    timezone_id="Asia/Jakarta",
-                    args=[
-                        "--start-maximized",
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-sandbox"
-                    ],
-                    ignore_default_args=["--enable-automation"]
-                )
-
+            browser = launch_browser(p, headless=False)
+            context = browser.new_context(
+                user_agent=DEFAULT_USER_AGENT,
+                no_viewport=True,
+                viewport=None,
+                storage_state=safe_state,
+                locale="id-ID",
+                timezone_id="Asia/Jakarta"
+            )
             context.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
@@ -735,9 +696,10 @@ class AuthManager:
                 });
             """)
 
-            page = context.pages[0] if context.pages else context.new_page()
+            page = context.new_page()
             try:
-                page.goto("https://www.tiktok.com/login", wait_until="domcontentloaded", timeout=45000)
+                target_url = "https://www.tiktok.com/tiktokstudio/upload" if AuthManager.is_tiktok_authenticated(account_name) else "https://www.tiktok.com/login"
+                page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
                 page.bring_to_front()
             except Exception:
                 pass
@@ -753,18 +715,26 @@ class AuthManager:
                         break
                     
                     cookies = context.cookies()
-                    has_session = any(c["name"] in ["sessionid", "sessionid_ss", "sid_tt", "passport_auth_status", "uid_tt", "sid_guard"] for c in cookies)
+                    has_session = any(
+                        c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                        for c in cookies
+                    )
 
                     if has_session:
                         console.print(f"[bold green][OK] Login TikTok Berhasil Terdeteksi untuk [{account_name}]![/bold green]")
-                        time.sleep(2)
-                        context.storage_state(path=str(state_file))
+                        # Berikan waktu 5 detik agar TikTok menyelesaikan handshake keamanan & token odin_tt
+                        time.sleep(5)
+                        try:
+                            context.storage_state(path=str(state_file))
+                        except Exception:
+                            pass
                         console.print(f"[bold cyan]Sesi berhasil disimpan ke: {state_file}[/bold cyan]")
                         try:
                             AccountManager.get_tiktok_profile(account_name, force_refresh=True)
                         except Exception:
                             pass
                         logged_in = True
+                        time.sleep(2)
                         break
                     time.sleep(1)
                 except Exception:
@@ -772,6 +742,10 @@ class AuthManager:
 
             try:
                 cookies = context.cookies()
+                has_session = any(
+                    c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                    for c in cookies
+                )
                 if has_session:
                     context.storage_state(path=str(state_file))
                     try:

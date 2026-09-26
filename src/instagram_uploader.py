@@ -326,12 +326,38 @@ class InstagramUploader:
                 # Caption
                 if sanitized_caption:
                     PublishTracker.update_step(session_id, "instagram", "Mengisi caption Instagram...", 75, "Mengisi teks caption dan hashtag di Instagram", "step")
-                    caption_box = page.locator("div[aria-label='Write a caption...'], div[aria-label='Tulis keterangan...'], div[role='textbox']").first
-                    if caption_box.count() > 0:
-                        caption_box.click()
-                        page.wait_for_timeout(500)
-                        caption_box.fill(sanitized_caption)
+                    console.print("[cyan]Mengisi caption dan mention di Instagram Web...[/cyan]")
+                    
+                    caption_box = page.locator(
+                        "div[role='dialog'] div[contenteditable='true'], "
+                        "div[role='dialog'] div[aria-label*='caption' i], "
+                        "div[role='dialog'] div[aria-label*='keterangan' i], "
+                        "div[role='dialog'] [data-lexical-editor='true'], "
+                        "div[role='dialog'] div[role='textbox'], "
+                        "div[aria-label='Write a caption...'], "
+                        "div[aria-label='Tulis keterangan...']"
+                    ).first
+
+                    try:
+                        caption_box.wait_for(state="visible", timeout=12000)
+                        caption_box.click(force=True)
+                        page.wait_for_timeout(400)
+                        page.keyboard.press("Control+A")
+                        page.keyboard.press("Backspace")
+                        page.wait_for_timeout(300)
+
+                        lines = sanitized_caption.split("\n")
+                        for idx, line in enumerate(lines):
+                            if line:
+                                page.keyboard.type(line, delay=15)
+                            if idx < len(lines) - 1:
+                                page.keyboard.press("Shift+Enter")
+                                page.wait_for_timeout(100)
+
                         page.wait_for_timeout(1000)
+                        console.print("[green]Caption Instagram berhasil diisi dengan sempurna![/green]")
+                    except Exception as e:
+                        console.print(f"[bold yellow]Catatan saat mengisi caption Instagram: {e}[/bold yellow]")
 
                 # Share
                 PublishTracker.update_step(session_id, "instagram", "Mempublikasikan postingan...", 85, "Menekan tombol 'Bagikan' / 'Share' Instagram", "step")

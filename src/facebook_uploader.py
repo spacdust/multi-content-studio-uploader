@@ -179,7 +179,12 @@ class FacebookUploader:
                     # 3. Upload Video
                     console.print("[cyan]3. Menyuntikkan file video...[/cyan]")
                     PublishTracker.update_step(session_id, "facebook", "Mengunggah video ke Facebook...", 40, f"Mengunggah file video {Path(resolved_files[0]).name} ke Facebook Reel", "step")
-                    file_input = page.locator("input[type='file']").first
+                    file_input = page.locator("div[role='dialog'] input[type='file']").first
+                    if file_input.count() == 0:
+                        file_input = page.locator("input[type='file'][accept*='video'], input[type='file']").last
+                    if file_input.count() == 0:
+                        file_input = page.locator("input[type='file']").first
+
                     if file_input.count() == 0:
                         page.screenshot(path=screenshot_path)
                         browser.close()
@@ -188,7 +193,7 @@ class FacebookUploader:
                         return False, err_msg, screenshot_path
 
                     file_input.set_input_files([resolved_files[0]])
-                    page.wait_for_timeout(5000)
+                    page.wait_for_timeout(4000)
 
                     # 4. Next Button 1 (Ke Edit reel)
                     console.print("[cyan]4. Melanjutkan ke Edit reel...[/cyan]")
@@ -196,9 +201,12 @@ class FacebookUploader:
                     next_btn1 = page.locator(
                         "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
                         "div[role='dialog'] div[aria-label='Berikutnya'], "
-                        "div[role='button']:has-text('Berikutnya'), "
-                        "div[aria-label='Berikutnya']"
+                        "div[role='dialog'] button:has-text('Berikutnya')"
                     ).last
+                    try:
+                        next_btn1.wait_for(state="visible", timeout=30000)
+                    except Exception:
+                        pass
                     if next_btn1.count() > 0:
                         next_btn1.click(force=True)
                         page.wait_for_timeout(3500)
@@ -208,9 +216,12 @@ class FacebookUploader:
                     next_btn2 = page.locator(
                         "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
                         "div[role='dialog'] div[aria-label='Berikutnya'], "
-                        "div[role='button']:has-text('Berikutnya'), "
-                        "div[aria-label='Berikutnya']"
+                        "div[role='dialog'] button:has-text('Berikutnya')"
                     ).last
+                    try:
+                        next_btn2.wait_for(state="visible", timeout=15000)
+                    except Exception:
+                        pass
                     if next_btn2.count() > 0:
                         next_btn2.click(force=True)
                         page.wait_for_timeout(3500)
@@ -220,12 +231,13 @@ class FacebookUploader:
                         console.print("[cyan]6. Mengisi deskripsi caption Reel Facebook...[/cyan]")
                         PublishTracker.update_step(session_id, "facebook", "Mengisi caption Reel...", 75, "Mengisi teks caption dan hashtag di Reel Facebook", "step")
                         desc_box = page.locator(
+                            "div[role='dialog'] div[role='textbox'], "
+                            "div[role='dialog'] div[contenteditable='true'], "
+                            "div[role='dialog'] textarea, "
                             "div[role='main'] div[role='textbox'], "
                             "div[role='form'] div[role='textbox'], "
-                            "div[role='main'] div[contenteditable='true'], "
-                            "div[role='dialog'] div[role='textbox'], "
                             "div[data-lexical-editor='true']"
-                        ).last
+                        ).first
                         if desc_box.count() > 0:
                             desc_box.click(force=True)
                             page.wait_for_timeout(500)
@@ -236,11 +248,24 @@ class FacebookUploader:
                     console.print("[bold green]7. Mempublikasikan Reel ke Halaman Facebook...[/bold green]")
                     PublishTracker.update_step(session_id, "facebook", "Mempublikasikan Reel...", 85, "Menekan tombol 'Kirim' / 'Posting' Reel Facebook", "step")
                     publish_btn = page.locator(
-                        "div[role='button']:has-text('Kirim'), div[aria-label='Kirim'], "
-                        "div[role='button']:has-text('Posting'), div[aria-label='Posting'], "
-                        "div[role='button']:has-text('Terbitkan'), div[aria-label='Terbitkan'], "
-                        "div[role='button']:has-text('Publish'), div[aria-label='Publish']"
+                        "div[role='dialog'] div[role='button']:has-text('Posting'), "
+                        "div[role='dialog'] div[aria-label='Posting'], "
+                        "div[role='dialog'] button:has-text('Posting'), "
+                        "div[role='dialog'] div[role='button']:has-text('Kirim'), "
+                        "div[role='dialog'] div[aria-label='Kirim'], "
+                        "div[role='dialog'] div[role='button']:has-text('Terbitkan'), "
+                        "div[role='dialog'] div[aria-label='Terbitkan'], "
+                        "div[role='dialog'] div[role='button']:has-text('Post'), "
+                        "div[role='dialog'] div[aria-label='Post'], "
+                        "div[role='dialog'] div[role='button']:has-text('Publish'), "
+                        "div[role='dialog'] div[aria-label='Publish'], "
+                        "div[role='button']:has-text('Posting'), "
+                        "div[role='button']:has-text('Kirim')"
                     ).last
+                    try:
+                        publish_btn.wait_for(state="visible", timeout=10000)
+                    except Exception:
+                        pass
                     if publish_btn.count() > 0:
                         publish_btn.click(force=True)
                     else:
@@ -295,7 +320,9 @@ class FacebookUploader:
                     # 3. Input Files
                     console.print(f"[cyan]3. Menyuntikkan {len(resolved_files)} file media...[/cyan]")
                     PublishTracker.update_step(session_id, "facebook", f"Mengunggah {len(resolved_files)} file media...", 45, f"Mengunggah {len(resolved_files)} file {category_name} ke Facebook", "step")
-                    file_input = page.locator("input[type='file']").first
+                    file_input = page.locator("div[role='dialog'] input[type='file']").first
+                    if file_input.count() == 0:
+                        file_input = page.locator("input[type='file']").first
                     if file_input.count() > 0:
                         file_input.set_input_files(resolved_files)
                         page.wait_for_timeout(4000)

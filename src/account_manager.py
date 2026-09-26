@@ -71,13 +71,37 @@ class AccountManager:
                 tt_state = acc_folder / "tiktok_state.json"
                 ig_state = acc_folder / "instagram_state.json"
 
+                tt_ready = False
+                if tt_state.exists() and tt_state.stat().st_size > 50:
+                    try:
+                        with open(tt_state, "r", encoding="utf-8") as f:
+                            tt_data = json.load(f)
+                        tt_ready = any(
+                            c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                            for c in tt_data.get("cookies", [])
+                        )
+                    except Exception:
+                        pass
+
+                ig_ready = False
+                if ig_state.exists() and ig_state.stat().st_size > 50:
+                    try:
+                        with open(ig_state, "r", encoding="utf-8") as f:
+                            ig_data = json.load(f)
+                        ig_ready = any(
+                            c.get("name") in ["sessionid", "ds_user_id"] and len(c.get("value", "")) > 3
+                            for c in ig_data.get("cookies", [])
+                        )
+                    except Exception:
+                        pass
+
                 accounts.append({
                     "name": name,
                     "slug": acc_folder.name,
                     "folder": acc_folder,
                     "description": desc,
-                    "tiktok_ready": tt_state.exists() and tt_state.stat().st_size > 50,
-                    "instagram_ready": ig_state.exists() and ig_state.stat().st_size > 50
+                    "tiktok_ready": tt_ready,
+                    "instagram_ready": ig_ready
                 })
         return accounts
 
@@ -158,37 +182,6 @@ class AccountManager:
                     except Exception:
                         pass
 
-                if (not profile_info.get("avatar_url") or not avatar_local.exists()) and state_file.exists():
-                    try:
-                        from playwright.sync_api import sync_playwright
-                        from src.config import DEFAULT_USER_AGENT
-                        with sync_playwright() as p:
-                            browser = p.chromium.launch(headless=True)
-                            safe_state = get_safe_storage_state(state_file)
-                            context = browser.new_context(user_agent=DEFAULT_USER_AGENT, storage_state=safe_state)
-                            page = context.new_page()
-                            page.goto("https://www.tiktok.com/tiktokstudio/upload", timeout=25000, wait_until="domcontentloaded")
-                            page.wait_for_timeout(3000)
-                            avatar_src = page.evaluate("""() => {
-                                const imgs = Array.from(document.querySelectorAll('img'));
-                                for (const img of imgs) {
-                                    if (img.src && (img.src.includes('tiktokcdn') || img.src.includes('avatar') || img.className.toLowerCase().includes('avatar'))) {
-                                        return img.src;
-                                    }
-                                }
-                                return null;
-                            }""")
-                            if avatar_src:
-                                profile_info["avatar_url"] = avatar_src
-                                img_res = requests.get(avatar_src, headers=headers, timeout=5)
-                                if img_res.status_code == 200:
-                                    with open(avatar_local, "wb") as img_f:
-                                        img_f.write(img_res.content)
-                                    profile_info["has_local_avatar"] = True
-                            browser.close()
-                    except Exception:
-                        pass
-
                 with open(profile_file, "w", encoding="utf-8") as f:
                     json.dump(profile_info, f, indent=2)
         except Exception:
@@ -250,3 +243,88 @@ class AccountManager:
                 ig_status
             )
         console.print(table)
+
+    @staticmethod
+    def clear_platform_session(account_name: str, platform: str = "tiktok") -> Dict[str, Any]:
+        """
+        Cleanly removes all login sessions, cookies, profile caches, and avatar images
+        for a specific platform of an account.
+        """
+        acc_dir = get_account_dir(account_name)
+        plat = platform.lower().strip()
+        deleted_files = []
+
+        if plat in ["tiktok", "all"]:
+            tt_files = [
+                acc_dir / "tiktok_state.json",
+                acc_dir / "tiktok_profile.json",
+                acc_dir / "tiktok_avatar.jpg",
+                acc_dir / "tiktok_avatar.png",
+                acc_dir / "tiktok_state.json.tmp",
+            ]
+            for f in tt_files:
+                if f.exists():
+                    try:
+                        f.unlink()
+                        deleted_files.append(str(f.name))
+                    except Exception:
+                        pass
+
+        if plat in ["instagram", "all"]:
+            ig_files = [
+                acc_dir / "instagram_state.json",
+                acc_dir / "instagram_profile.json",
+                acc_dir / "instagram_avatar.jpg",
+                acc_dir / "instagram_avatar.png",
+                acc_dir / "instagram_state.json.tmp",
+            ]
+            for f in ig_files:
+                if f.exists():
+                    try:
+                        f.unlink()
+                        deleted_files.append(str(f.name))
+                    except Exception:
+                        pass
+
+        if plat in ["facebook", "all"]:
+            fb_files = [
+                acc_dir / "facebook_state.json",
+                acc_dir / "facebook_profile.json",
+                acc_dir / "facebook_avatar.jpg",
+                acc_dir / "facebook_avatar.png",
+                acc_dir / "facebook_state.json.tmp",
+            ]
+            for f in fb_files:
+                if f.exists():
+                    try:
+                        f.unlink()
+                        deleted_files.append(str(f.name))
+                    except Exception:
+                        pass
+
+        # Update account_info.json connected status
+        info_file = acc_dir / "account_info.json"
+        if info_file.exists():
+            try:
+                with open(info_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if "platforms" not in data:
+                    data["platforms"] = {}
+                if plat in ["tiktok", "all"]:
+                    data["platforms"]["tiktok"] = {"connected": False}
+                if plat in ["instagram", "all"]:
+                    data["platforms"]["instagram"] = {"connected": False}
+                if plat in ["facebook", "all"]:
+                    data["platforms"]["facebook"] = {"connected": False}
+                with open(info_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+            except Exception:
+                pass
+
+        return {
+            "status": "success",
+            "account": account_name,
+            "platform": plat,
+            "deleted_files": deleted_files,
+            "message": f"Sesi {plat.upper()} untuk akun '{account_name}' berhasil dihapus secara bersih!"
+        }

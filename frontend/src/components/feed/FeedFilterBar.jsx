@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { Zap } from 'lucide-react';
 import { getLocalTodayDate } from '../../utils/dateUtils';
 
 export default function FeedFilterBar({
@@ -11,6 +12,9 @@ export default function FeedFilterBar({
   sortBy,
   setSortBy,
   availableDates,
+  unuploadedCount = 0,
+  onOpenMassUpload,
+  batchPublishing = false,
 }) {
   const todayStr = getLocalTodayDate();
   const datePickerRef = useRef(null);
@@ -59,6 +63,9 @@ export default function FeedFilterBar({
             onChange={(e) => setSortBy(e.target.value)}
             className="bg-transparent text-xs text-cyan-300 font-medium outline-none cursor-pointer"
           >
+            <option value="custom" className="bg-zinc-900 text-emerald-300 font-semibold">
+              🔀 Urutan Manual (Kustom)
+            </option>
             <option value="date-desc" className="bg-zinc-900 text-zinc-200">
               📅 Tanggal (Terbaru)
             </option>
@@ -136,6 +143,31 @@ export default function FeedFilterBar({
           <option value="FACEBOOK_ONLY">📘 Facebook Saja</option>
           <option value="ALL_PLATFORMS">✅ Semua Platform (TT · IG · FB)</option>
         </select>
+
+        {/* Upload Massal Button (Far Right of Sort & Filter Box) */}
+        <button
+          type="button"
+          onClick={onOpenMassUpload}
+          disabled={unuploadedCount === 0 || batchPublishing}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-sm select-none ${
+            unuploadedCount > 0 && !batchPublishing
+              ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white cursor-pointer active:scale-95 shadow-emerald-950/50'
+              : 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
+          }`}
+          title={
+            unuploadedCount > 0
+              ? `Upload massal ${unuploadedCount} media pending berurutan dari bawah ke atas`
+              : 'Semua media pada filter ini sudah terupload'
+          }
+        >
+          <Zap className={`w-3.5 h-3.5 ${unuploadedCount > 0 && !batchPublishing ? 'text-amber-300 fill-amber-300' : 'text-zinc-500'}`} />
+          <span>Upload Massal</span>
+          {unuploadedCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-extrabold">
+              {unuploadedCount}
+            </span>
+          )}
+        </button>
       </div>
     </div>
   );

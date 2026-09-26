@@ -1,9 +1,9 @@
 import React from 'react';
 import { Film, Image as ImageIcon, Layers, Sparkles, Save, Check } from 'lucide-react';
 import MediaPreviewer from './MediaPreviewer';
-import ScheduleSettingCard from './ScheduleSettingCard';
 import CaptionEditorCard from './CaptionEditorCard';
 import TikTokSoundCard from './TikTokSoundCard';
+import TikTokProductCard from './TikTokProductCard';
 import PublishActionCenter from './PublishActionCenter';
 import { CATEGORY_COLORS } from '../../utils/constants';
 import { formatDateDisplay } from '../../utils/dateUtils';
@@ -29,7 +29,7 @@ export default function StudioInspector({
 }) {
   if (!selectedItem) {
     return (
-      <aside className="lg:col-span-5 bg-zinc-900/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col gap-4 sticky top-20 shadow-xl">
+      <aside className="lg:col-span-5 bg-zinc-900/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col gap-4 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto custom-scrollbar shadow-xl">
         <div className="py-24 text-center text-zinc-500 text-xs font-medium">
           Pilih salah satu konten di panel kiri untuk membuka Studio Inspector.
         </div>
@@ -38,7 +38,7 @@ export default function StudioInspector({
   }
 
   return (
-    <aside className="lg:col-span-5 bg-zinc-900/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col gap-4 sticky top-20 shadow-xl backdrop-blur-xs">
+    <aside className="lg:col-span-5 bg-zinc-900/40 border border-zinc-800/80 rounded-2xl p-5 flex flex-col gap-4 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto custom-scrollbar shadow-xl backdrop-blur-xs">
       {/* Inspector Header */}
       <div className="flex items-start justify-between gap-3 border-b border-zinc-800/80 pb-3.5">
         <div className="min-w-0">
@@ -96,15 +96,7 @@ export default function StudioInspector({
         setCarouselSlideIndices={setCarouselSlideIndices}
       />
 
-      {/* 2. Schedule Setting Card */}
-      <ScheduleSettingCard
-        selectedItem={selectedItem}
-        currentEdit={currentEdit}
-        isInspectorScheduled={isInspectorScheduled}
-        setEditedItems={setEditedItems}
-      />
-
-      {/* 3. AI Caption & Hashtags Editor */}
+      {/* 2. AI Caption & Hashtags Editor */}
       <CaptionEditorCard
         selectedItem={selectedItem}
         currentEdit={currentEdit}
@@ -117,6 +109,15 @@ export default function StudioInspector({
         selectedItem={selectedItem}
         currentEdit={currentEdit}
         setEditedItems={setEditedItems}
+      />
+
+      {/* 4.5. TikTok Yellow Cart / Product Link Controller */}
+      <TikTokProductCard
+        selectedItem={selectedItem}
+        currentEdit={currentEdit}
+        setEditedItems={setEditedItems}
+        selectedAccount={currentAccData?.slug || selectedItem?.account}
+        showToast={showToast}
       />
 
       {/* 5. Publish Action Center */}

@@ -53,6 +53,11 @@ def main():
     del_acc = acc_sub.add_parser("delete", help="Hapus akun")
     del_acc.add_argument("--name", "-n", required=True, help="Nama akun yang akan dihapus")
 
+    # account disconnect / logout
+    disc_acc = acc_sub.add_parser("disconnect", help="Hapus login/sesi platform secara bersih")
+    disc_acc.add_argument("--name", "-n", required=True, help="Nama akun target")
+    disc_acc.add_argument("--platform", "-p", choices=["tiktok", "instagram", "facebook", "all"], default="tiktok", help="Platform yang ingin diputus sesinya")
+
     # Command: content
     content_parser = subparsers.add_parser("content", help="Manajemen feed konten dan struktur folder per akun")
     cont_sub = content_parser.add_subparsers(dest="content_action", help="Aksi konten")
@@ -179,6 +184,12 @@ def handle_account(args):
     elif args.account_action == "add":
         data = AccountManager.create_or_get_account(args.name, description=args.desc)
         console.print(f"[bold green]Akun berhasil didaftarkan:[/] [cyan]{data['name']}[/]")
+        AccountManager.print_accounts_table()
+    elif args.account_action == "disconnect":
+        res = AccountManager.clear_platform_session(args.name, platform=args.platform)
+        console.print(f"[bold green]{res['message']}[/bold green]")
+        if res.get("deleted_files"):
+            console.print(f"[dim]File yang dibersihkan: {', '.join(res['deleted_files'])}[/dim]")
         AccountManager.print_accounts_table()
 
 def handle_content(args):

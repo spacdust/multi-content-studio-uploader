@@ -1,5 +1,5 @@
 import React from 'react';
-import { Music, Search, Star, Shuffle } from 'lucide-react';
+import { Music, Search, Star, Shuffle, VolumeX } from 'lucide-react';
 
 export default function TikTokSoundCard({
   selectedItem,
@@ -22,8 +22,9 @@ export default function TikTokSoundCard({
           </span>
         </div>
 
-        {/* Segmented Mode Selector: Search Query vs Random Favorite */}
+        {/* Segmented Mode Selector: No Sound vs Favorite vs Search */}
         <div className="flex items-center p-0.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px] font-medium">
+          {/* Option 1: No Sound */}
           <button
             type="button"
             onClick={() =>
@@ -31,20 +32,21 @@ export default function TikTokSoundCard({
                 ...prev,
                 [selectedItem.item_key]: {
                   ...prev[selectedItem.item_key],
-                  soundMode: 'search',
+                  soundMode: 'none',
                 },
               }))
             }
-            className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${
-              soundMode === 'search'
-                ? 'bg-cyan-500/20 text-cyan-300 font-semibold shadow-xs'
+            className={`px-2 py-1 rounded-md transition flex items-center gap-1 ${
+              soundMode === 'none'
+                ? 'bg-zinc-800 text-zinc-200 font-semibold shadow-xs border border-zinc-700/60'
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            <Search className="w-2.5 h-2.5" />
-            <span>Cari Sound</span>
+            <VolumeX className="w-2.5 h-2.5 text-red-400" />
+            <span>No Sound</span>
           </button>
 
+          {/* Option 2: Favorite (Random) */}
           <button
             type="button"
             onClick={() =>
@@ -56,20 +58,59 @@ export default function TikTokSoundCard({
                 },
               }))
             }
-            className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${
+            className={`px-2 py-1 rounded-md transition flex items-center gap-1 ${
               soundMode === 'favorite'
                 ? 'bg-amber-500/20 text-amber-300 font-semibold shadow-xs'
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Star className="w-2.5 h-2.5" />
-            <span>Favorite (Random)</span>
+            <span>Favorite</span>
+          </button>
+
+          {/* Option 3: Search Sound */}
+          <button
+            type="button"
+            onClick={() =>
+              setEditedItems((prev) => ({
+                ...prev,
+                [selectedItem.item_key]: {
+                  ...prev[selectedItem.item_key],
+                  soundMode: 'search',
+                },
+              }))
+            }
+            className={`px-2 py-1 rounded-md transition flex items-center gap-1 ${
+              soundMode === 'search'
+                ? 'bg-cyan-500/20 text-cyan-300 font-semibold shadow-xs'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Search className="w-2.5 h-2.5" />
+            <span>Cari</span>
           </button>
         </div>
       </div>
 
-      {/* Mode 1: Search Query Input */}
-      {soundMode === 'search' ? (
+      {/* Mode 1: No Sound / Tanpa Musik */}
+      {soundMode === 'none' ? (
+        <div className="flex flex-col gap-2">
+          <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-800/80 flex items-start gap-2.5">
+            <div className="p-1 rounded-md bg-zinc-800 text-zinc-400 flex-shrink-0 mt-0.5">
+              <VolumeX className="w-3.5 h-3.5 text-zinc-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-zinc-200">
+                Mode Tanpa Sound (Original Audio Only)
+              </p>
+              <p className="text-[10px] text-zinc-400 leading-relaxed mt-0.5">
+                Bot <strong>tidak akan memilih atau menambahkan musik/sound</strong> di TikTok Studio. Konten akan terbit menggunakan audio asli video bawaan tanpa musik latar.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : soundMode === 'search' ? (
+        /* Mode 2: Search Query Input */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="text-[10px] text-zinc-400 font-medium block mb-1">
@@ -114,7 +155,7 @@ export default function TikTokSoundCard({
           </div>
         </div>
       ) : (
-        /* Mode 2: Random Favorite Sound */
+        /* Mode 3: Random Favorite Sound */
         <div className="flex flex-col gap-2.5">
           <div className="p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 flex items-start gap-2.5">
             <div className="p-1 rounded-md bg-amber-500/10 text-amber-400 flex-shrink-0 mt-0.5">

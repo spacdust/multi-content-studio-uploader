@@ -145,16 +145,16 @@ export default function CopyLinksModal({ isOpen, onClose, item, account, onToast
 
   const generateShareSummary = useCallback(() => {
     const lines = [];
-    if (postUrls.tiktok) lines.push(`🎵 TikTok:\n${postUrls.tiktok}`);
-    if (postUrls.instagram) lines.push(`📷 Instagram:\n${postUrls.instagram}`);
-    if (postUrls.facebook) lines.push(`📘 Facebook:\n${postUrls.facebook}`);
+    if (postUrls.tiktok) lines.push(`Tiktok: ${postUrls.tiktok}`);
+    if (postUrls.instagram) lines.push(`Instagram: ${postUrls.instagram}`);
+    if (postUrls.facebook) lines.push(`Facebook: ${postUrls.facebook}`);
 
     if (lines.length === 0) {
       const accClean = (account || item?.account || '').toLowerCase().replace(/\s+/g, '');
       const accSlug = (account || item?.account || '').toLowerCase().replace(/\s+/g, '_');
-      return `TikTok:\nhttps://www.tiktok.com/@${accClean}\n\nInstagram:\nhttps://www.instagram.com/${accSlug}/\n\nFacebook:\nhttps://www.facebook.com/${accClean}`;
+      return `Tiktok: https://www.tiktok.com/@${accClean}\nInstagram: https://www.instagram.com/${accSlug}/\nFacebook: https://www.facebook.com/${accClean}`;
     }
-    return lines.join('\n\n');
+    return lines.join('\n');
   }, [postUrls, account, item]);
 
   if (!isOpen || !item) return null;

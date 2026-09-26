@@ -17,6 +17,7 @@ import AddDateModal from './components/modals/AddDateModal';
 import SettingsModal from './components/modals/SettingsModal';
 import DeleteConfirmModal from './components/modals/DeleteConfirmModal';
 import PublishProgressModal from './components/modals/PublishProgressModal';
+import MassUploadModal from './components/modals/MassUploadModal';
 
 export default function App() {
   const { toast, showToast } = useToast();
@@ -51,6 +52,7 @@ export default function App() {
         setShowSettingsModal={settingsState.setShowSettingsModal}
         setTestResult={settingsState.setTestResult}
         showToast={showToast}
+        schedulerStatus={contentState.schedulerStatus}
       />
 
       {/* Main Studio 2-Pane Master Detail Layout */}
@@ -79,6 +81,9 @@ export default function App() {
             setSortBy={contentState.setSortBy}
             availableDates={contentState.availableDates}
             setShowAddDateModal={contentState.setShowAddDateModal}
+            unuploadedCount={contentState.unuploadedSortedItems.length}
+            onOpenMassUpload={() => contentState.setShowMassUploadModal(true)}
+            batchPublishing={contentState.batchPublishing}
           />
 
           <ContentFeedList
@@ -89,6 +94,8 @@ export default function App() {
             filterDate={contentState.filterDate}
             setFilterDate={contentState.setFilterDate}
             onToast={showToast}
+            onMoveItem={contentState.handleMoveItem}
+            onDragReorder={contentState.handleDragReorder}
             onDeleteClick={(item) => {
               contentState.setItemToDelete(item);
               contentState.setShowDeleteConfirmModal(true);
@@ -100,7 +107,6 @@ export default function App() {
         <StudioInspector
           selectedItem={contentState.selectedItem}
           currentEdit={contentState.currentEdit}
-          isInspectorScheduled={contentState.isInspectorScheduled}
           currentHashtags={contentState.currentHashtags}
           carouselSlideIndices={contentState.carouselSlideIndices}
           setCarouselSlideIndices={contentState.setCarouselSlideIndices}
@@ -149,10 +155,6 @@ export default function App() {
         setSingleMediaPreviewUrl={contentState.setSingleMediaPreviewUrl}
         carouselSlides={contentState.carouselSlides}
         setCarouselSlides={contentState.setCarouselSlides}
-        isScheduledUpload={contentState.isScheduledUpload}
-        setIsScheduledUpload={contentState.setIsScheduledUpload}
-        uploadScheduleTime={contentState.uploadScheduleTime}
-        setUploadScheduleTime={contentState.setUploadScheduleTime}
         uploadDate={contentState.uploadDate}
         setUploadDate={contentState.setUploadDate}
         carouselNameInput={contentState.carouselNameInput}
@@ -201,6 +203,20 @@ export default function App() {
         sessionData={contentState.publishSessionData}
         isMinimized={contentState.publishMinimized}
         setIsMinimized={contentState.setPublishMinimized}
+        onStopBatch={contentState.handleStopMassUpload}
+      />
+
+      {/* Mass Upload Confirmation & Sequence Modal */}
+      <MassUploadModal
+        isOpen={contentState.showMassUploadModal}
+        onClose={() => contentState.setShowMassUploadModal(false)}
+        queue={contentState.massUploadQueue}
+        activePlatforms={contentState.activePlatforms}
+        onConfirm={contentState.handleStartMassUpload}
+        onConfirmSchedule={contentState.handleBatchSchedule}
+        onClearSchedule={contentState.handleBatchClearSchedule}
+        isPublishDisabled={contentState.isPublishDisabled}
+        accountName={accountsState.selectedAccount}
       />
     </div>
   );

@@ -16,7 +16,8 @@ import {
   Film,
   Image as ImageIcon,
   Layers,
-  Bot
+  Bot,
+  Zap
 } from 'lucide-react';
 
 export default function PublishProgressModal({
@@ -24,7 +25,8 @@ export default function PublishProgressModal({
   onClose,
   sessionData,
   isMinimized,
-  setIsMinimized
+  setIsMinimized,
+  onStopBatch
 }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedLog, setCopiedLog] = useState(false);
@@ -131,9 +133,15 @@ export default function PublishProgressModal({
           )}
         </div>
 
-        <div className="flex flex-col max-w-[200px]">
+        <div className="flex flex-col max-w-[220px]">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200 truncate">
-            <span className="text-emerald-400 font-mono">{percent}%</span>
+            {sessionData?.batchInfo ? (
+              <span className="text-emerald-300 font-mono text-[11px] bg-emerald-950/80 px-1.5 py-0.2 rounded border border-emerald-800/60">
+                Batch {sessionData.batchInfo.current}/{sessionData.batchInfo.total}
+              </span>
+            ) : (
+              <span className="text-emerald-400 font-mono">{percent}%</span>
+            )}
             <span className="truncate">{item_name}</span>
           </div>
           <span className="text-[10px] text-zinc-400 truncate">{current_step}</span>
@@ -220,6 +228,40 @@ export default function PublishProgressModal({
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 custom-scrollbar bg-zinc-900">
           
+          {/* Batch Upload Progress Banner if active */}
+          {sessionData?.batchInfo && (
+            <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/80 via-teal-950/80 to-zinc-950 border border-emerald-800/80 flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex-shrink-0">
+                  <Zap className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-emerald-200">
+                      Upload Massal: Media {sessionData.batchInfo.current} dari {sessionData.batchInfo.total}
+                    </span>
+                    <span className="px-1.5 py-0.2 text-[9px] font-mono font-semibold rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700/60">
+                      {Math.round(((sessionData.batchInfo.current - 1 + (percent / 100)) / sessionData.batchInfo.total) * 100)}% Total
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-zinc-300 truncate">
+                    Sedang memproses: <span className="text-white font-medium">{sessionData.batchInfo.item?.name || item_name}</span>
+                  </p>
+                </div>
+              </div>
+
+              {onStopBatch && !isCompleted && !isFailed && (
+                <button
+                  type="button"
+                  onClick={onStopBatch}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 transition cursor-pointer flex-shrink-0"
+                >
+                  Hentikan Batch
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Progress Header & Animated Bar */}
           <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 shadow-inner">
             <div className="flex items-center justify-between mb-2">

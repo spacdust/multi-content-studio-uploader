@@ -117,7 +117,7 @@ Atau via terminal:
 ```powershell
 python -m src.server
 ```
-Buka browser dan akses: **`http://localhost:8000`**
+Buka browser dan akses: **`http://127.0.0.1:8000`**
 
 ---
 

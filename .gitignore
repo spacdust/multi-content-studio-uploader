@@ -60,6 +60,7 @@ logs/*
 !logs/.gitkeep
 *.log
 *.png.bak
+scratch/
 
 # 5. Python Artifacts & Virtual Environments
 __pycache__/

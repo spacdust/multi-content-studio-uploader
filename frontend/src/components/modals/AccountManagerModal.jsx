@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Users, RefreshCw, LogIn, ExternalLink, ShieldCheck, Cookie, Info, Check, Zap } from 'lucide-react';
-import { importTikTokSessionApi, refreshTikTokSessionApi } from '../../api/accountApi';
+import { Users, RefreshCw, LogIn, LogOut, ExternalLink, ShieldCheck, Cookie, Info, Check, Zap } from 'lucide-react';
+import { importTikTokSessionApi, refreshTikTokSessionApi, disconnectAccountApi } from '../../api/accountApi';
 
 export default function AccountManagerModal({
   show,
@@ -23,6 +23,28 @@ export default function AccountManagerModal({
   const [cookieDataInput, setCookieDataInput] = useState('');
   const [importingCookie, setImportingCookie] = useState(false);
   const [refreshingAccount, setRefreshingAccount] = useState(null);
+  const [disconnectingAccount, setDisconnectingAccount] = useState(null);
+
+  const handleDisconnectPlatform = async (accountName, platform) => {
+    const platformLabel = platform === 'tiktok' ? 'TikTok' : platform === 'instagram' ? 'Instagram' : 'Facebook';
+    if (!window.confirm(`Yakin ingin menghapus login & sesi ${platformLabel} untuk akun '${accountName}' secara bersih? Semua cookie dan sesi lokal akan dihapus.`)) {
+      return;
+    }
+    setDisconnectingAccount(`${accountName}-${platform}`);
+    try {
+      const res = await disconnectAccountApi(accountName, platform);
+      if (showToast) {
+        showToast(res.message || `✓ Sesi ${platformLabel} '${accountName}' berhasil dihapus!`, 'success');
+      }
+      fetchAccounts();
+    } catch (err) {
+      if (showToast) {
+        showToast(`Gagal menghapus sesi: ${err.message}`, 'error');
+      }
+    } finally {
+      setDisconnectingAccount(null);
+    }
+  };
 
   const handleImportTikTokCookie = async (e) => {
     e.preventDefault();
@@ -235,6 +257,17 @@ export default function AccountManagerModal({
                           <ExternalLink className="w-3 h-3" />
                         </button>
                       )}
+
+                      {acc.tiktok_active && (
+                        <button
+                          onClick={() => handleDisconnectPlatform(acc.name, 'tiktok')}
+                          disabled={disconnectingAccount === `${acc.name}-tiktok`}
+                          title="Hapus login & putuskan sesi TikTok secara bersih"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-zinc-700 hover:border-rose-800/60 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
+                        >
+                          <LogOut className={`w-3 h-3 ${disconnectingAccount === `${acc.name}-tiktok` ? 'animate-spin' : ''}`} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -286,6 +319,17 @@ export default function AccountManagerModal({
                           <ExternalLink className="w-3 h-3" />
                         </button>
                       )}
+
+                      {acc.instagram_active && (
+                        <button
+                          onClick={() => handleDisconnectPlatform(acc.name, 'instagram')}
+                          disabled={disconnectingAccount === `${acc.name}-instagram`}
+                          title="Hapus login & putuskan sesi Instagram secara bersih"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-zinc-700 hover:border-rose-800/60 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
+                        >
+                          <LogOut className={`w-3 h-3 ${disconnectingAccount === `${acc.name}-instagram` ? 'animate-spin' : ''}`} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -335,6 +379,17 @@ export default function AccountManagerModal({
                           className="px-2 py-1.5 bg-zinc-800 hover:bg-zinc-750 text-blue-400 hover:text-blue-300 border border-zinc-700 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
                         >
                           <ExternalLink className="w-3 h-3" />
+                        </button>
+                      )}
+
+                      {acc.facebook_active && (
+                        <button
+                          onClick={() => handleDisconnectPlatform(acc.name, 'facebook')}
+                          disabled={disconnectingAccount === `${acc.name}-facebook`}
+                          title="Hapus login & putuskan sesi Facebook secara bersih"
+                          className="px-2 py-1.5 bg-zinc-800 hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 border border-zinc-700 hover:border-rose-800/60 rounded-lg text-[11px] font-medium flex items-center gap-1 transition"
+                        >
+                          <LogOut className={`w-3 h-3 ${disconnectingAccount === `${acc.name}-facebook` ? 'animate-spin' : ''}`} />
                         </button>
                       )}
                     </div>

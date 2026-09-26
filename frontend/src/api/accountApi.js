@@ -93,3 +93,16 @@ export async function refreshTikTokSessionApi(account) {
   return await res.json();
 }
 
+export async function disconnectAccountApi(account, platform = 'tiktok') {
+  const res = await fetch('/api/accounts/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account, platform }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Gagal memutuskan sesi akun');
+  }
+  return await res.json();
+}
+

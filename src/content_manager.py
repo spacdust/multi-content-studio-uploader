@@ -58,6 +58,39 @@ class ContentManager:
         return history_file
 
     @classmethod
+    def get_custom_order_file(cls, account_name: str) -> Path:
+        """Returns the custom queue order path for an account."""
+        acc_dir = get_account_dir(account_name)
+        order_file = acc_dir / "queue_order.json"
+        if not order_file.exists():
+            with open(order_file, "w", encoding="utf-8") as f:
+                json.dump([], f, indent=2)
+        return order_file
+
+    @classmethod
+    def load_custom_order(cls, account_name: str) -> List[str]:
+        """Loads ordered list of item_keys for an account."""
+        order_file = cls.get_custom_order_file(account_name)
+        try:
+            with open(order_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    @classmethod
+    def save_custom_order(cls, account_name: str, ordered_keys: List[str]) -> bool:
+        """Saves custom queue ordering of item_keys."""
+        order_file = cls.get_custom_order_file(account_name)
+        try:
+            with open(order_file, "w", encoding="utf-8") as f:
+                json.dump(ordered_keys, f, indent=2)
+            return True
+        except Exception as e:
+            console.print(f"[bold red]Gagal menyimpan custom queue order: {e}[/bold red]")
+            return False
+
+    @classmethod
     def load_history(cls, account_name: str) -> Dict[str, Any]:
         """Loads upload history for an account."""
         hist_file = cls.get_history_file(account_name)
@@ -182,6 +215,8 @@ class ContentManager:
         caption = ""
         default_db = "-7" if category == "Video" else "0"
         meta = {
+            "tiktok_mentions": "",
+            "instagram_mentions": "",
             "sound_mode": "favorite",
             "sound_query": "",
             "sound_db": default_db,
@@ -314,6 +349,8 @@ class ContentManager:
                 continue
 
             history = cls.load_history(acc)
+            custom_order_keys = cls.load_custom_order(acc)
+            order_lookup = {k: idx for idx, k in enumerate(custom_order_keys)}
 
             # 1. SCAN KATEGORI: VIDEO
             video_dir = acc_dir / "Video"
@@ -342,6 +379,7 @@ class ContentManager:
                                     "meta": meta,
                                     "created_at": item_ts,
                                     "mtime": mtime,
+                                    "custom_order": order_lookup.get(item_key, 999999),
                                     "uploaded_platforms": uploaded_p,
                                     "uploaded_timestamps": uploaded_ts,
                                     "post_urls": post_urls,
@@ -375,6 +413,7 @@ class ContentManager:
                                     "meta": meta,
                                     "created_at": item_ts,
                                     "mtime": mtime,
+                                    "custom_order": order_lookup.get(item_key, 999999),
                                     "uploaded_platforms": uploaded_p,
                                     "uploaded_timestamps": uploaded_ts,
                                     "post_urls": post_urls,
@@ -414,6 +453,7 @@ class ContentManager:
                                         "meta": meta,
                                         "created_at": item_ts,
                                         "mtime": mtime,
+                                        "custom_order": order_lookup.get(item_key, 999999),
                                         "uploaded_platforms": uploaded_p,
                                         "uploaded_timestamps": uploaded_ts,
                                         "post_urls": post_urls,
@@ -505,6 +545,44 @@ class ContentManager:
         console.print(table)
 
     @classmethod
+    def get_platform_caption(cls, base_caption: str, platform_mentions: str = "") -> str:
+        """
+        Combines the main caption with platform-specific mentions / tags.
+        Places mentions directly after the narrative caption text and BEFORE the hashtag block.
+        Ensures usernames are properly prefixed with '@' and prevents duplicate tagging.
+        """
+        base_caption = (base_caption or "").strip()
+        platform_mentions = (platform_mentions or "").strip()
+        if not platform_mentions:
+            return base_caption
+
+        # Normalize mention tokens (e.g. "@user1, user2" -> "@user1 @user2")
+        raw_tokens = [t.strip() for t in re.split(r'[\s,]+', platform_mentions) if t.strip()]
+        cleaned_tokens = []
+        for t in raw_tokens:
+            cleaned_tokens.append(t if t.startswith("@") else f"@{t}")
+        mentions_str = " ".join(cleaned_tokens)
+
+        if not base_caption:
+            return mentions_str
+
+        # If mentions are already included in the base caption, do not duplicate
+        if mentions_str.lower() in base_caption.lower():
+            return base_caption
+
+        # Detect trailing hashtag block (e.g. "\n\n#fyp #viral" or " #tag1 #tag2")
+        hashtag_match = re.search(r'(\s*(?:#[a-zA-Z0-9_\u0080-\uffff]+\s*)+)$', base_caption)
+        if hashtag_match:
+            body_text = base_caption[:hashtag_match.start()].rstrip()
+            hashtags_block = hashtag_match.group(1).strip()
+            if body_text:
+                return f"{body_text}\n\n{mentions_str}\n\n{hashtags_block}"
+            else:
+                return f"{mentions_str}\n\n{hashtags_block}"
+
+        return f"{base_caption}\n\n{mentions_str}"
+
+    @classmethod
     def process_content_item(
         cls,
         item: Dict[str, Any],
@@ -519,6 +597,10 @@ class ContentManager:
         category = item["category"]
         caption = item["caption"]
         meta = item["meta"]
+
+        tt_caption = cls.get_platform_caption(caption, meta.get("tiktok_mentions", ""))
+        ig_caption = cls.get_platform_caption(caption, meta.get("instagram_mentions", ""))
+        fb_caption = caption
 
         # 1. Tentukan platform target: jika "all", deteksi platform yang sesi login sertifikasinya aktif
         if platform_filter == "all":
@@ -571,12 +653,13 @@ class ContentManager:
                 uploader = TikTokUploader(headless=headless)
                 ok, msg, proof = uploader.upload(
                     video_path=video_path,
-                    caption=caption,
+                    caption=tt_caption,
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
                     sound_volume_db=meta.get("sound_db", "-7"),
+                    tiktok_product=meta.get("tiktok_product"),
                     session_id=session_id
                 )
                 if ok:
@@ -588,7 +671,7 @@ class ContentManager:
                 uploader = InstagramUploader(headless=headless)
                 ok, msg, proof = uploader.upload(
                     video_path=video_path,
-                    caption=caption,
+                    caption=ig_caption,
                     as_reel=True,
                     account_name=account,
                     session_id=session_id
@@ -603,7 +686,7 @@ class ContentManager:
                 uploader = FacebookUploader(headless=headless)
                 ok, msg, proof = uploader.upload(
                     video_path=video_path,
-                    caption=caption,
+                    caption=fb_caption,
                     as_reel=True,
                     account_name=account,
                     session_id=session_id
@@ -621,14 +704,15 @@ class ContentManager:
                 uploader = TikTokUploader(headless=headless)
                 ok, msg, proof = uploader.upload_photos(
                     photo_paths=[img_path],
-                    caption=caption,
+                    caption=tt_caption,
                     title="",
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
                     category_label="Poster",
-                    session_id=session_id
+                    session_id=session_id,
+                    tiktok_product=meta.get("tiktok_product")
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
@@ -639,7 +723,7 @@ class ContentManager:
                 uploader = InstagramUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
                     media_paths=[img_path],
-                    caption=caption,
+                    caption=ig_caption,
                     is_reel=False,
                     account_name=account,
                     session_id=session_id
@@ -654,7 +738,7 @@ class ContentManager:
                 uploader = FacebookUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
                     media_paths=[img_path],
-                    caption=caption,
+                    caption=fb_caption,
                     is_reel=False,
                     account_name=account,
                     session_id=session_id
@@ -672,14 +756,15 @@ class ContentManager:
                 uploader = TikTokUploader(headless=headless)
                 ok, msg, proof = uploader.upload_photos(
                     photo_paths=slides,
-                    caption=caption,
+                    caption=tt_caption,
                     title="",
                     as_draft=meta.get("as_draft", False),
                     account_name=account,
                     sound_mode=meta.get("sound_mode", "favorite"),
                     tiktok_sound_query=meta.get("sound_query", ""),
                     category_label="Carousel",
-                    session_id=session_id
+                    session_id=session_id,
+                    tiktok_product=meta.get("tiktok_product")
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
@@ -690,7 +775,7 @@ class ContentManager:
                 uploader = InstagramUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
                     media_paths=slides,
-                    caption=caption,
+                    caption=ig_caption,
                     is_reel=False,
                     account_name=account,
                     session_id=session_id
@@ -705,7 +790,7 @@ class ContentManager:
                 uploader = FacebookUploader(headless=headless)
                 ok, msg, proof = uploader.upload_media(
                     media_paths=slides,
-                    caption=caption,
+                    caption=fb_caption,
                     is_reel=False,
                     account_name=account,
                     session_id=session_id

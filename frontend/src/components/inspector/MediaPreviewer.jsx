@@ -10,7 +10,7 @@ export default function MediaPreviewer({
 
   if (item.category === 'Video') {
     return (
-      <div className="w-full aspect-video rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner">
+      <div className="w-full aspect-video min-h-[220px] flex-shrink-0 rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner">
         <video
           key={item.media_url}
           src={item.media_url}
@@ -37,7 +37,7 @@ export default function MediaPreviewer({
     const activeSlideUrl = slideUrls[currentSlideIdx] || slideUrls[0];
 
     return (
-      <div className="w-full aspect-video rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner group">
+      <div className="w-full aspect-video min-h-[220px] flex-shrink-0 rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner group">
         <img
           key={activeSlideUrl}
           src={activeSlideUrl}
@@ -116,7 +116,7 @@ export default function MediaPreviewer({
   }
 
   return (
-    <div className="w-full aspect-video rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner">
+    <div className="w-full aspect-video min-h-[220px] flex-shrink-0 rounded-xl bg-black border border-zinc-800 overflow-hidden flex items-center justify-center relative shadow-inner">
       <img
         src={item.media_url}
         alt={item.name}

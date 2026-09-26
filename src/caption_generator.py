@@ -116,13 +116,30 @@ class CaptionGenerator:
         return frames_b64
 
     @classmethod
-    def encode_image_base64(cls, image_path: Path) -> Optional[str]:
-        """Encodes an image file to base64."""
+    def encode_image_base64(cls, image_path: Path, max_size: int = 1024) -> Optional[str]:
+        """Encodes an image file to base64, resizing large images to max_size for ultra fast LLM transmission."""
         try:
-            with open(image_path, "rb") as f:
-                return base64.b64encode(f.read()).decode("utf-8")
+            from PIL import Image
+            import io
+            with Image.open(image_path) as img:
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                
+                w, h = img.size
+                if max(w, h) > max_size:
+                    scale = max_size / max(w, h)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=85)
+                return base64.b64encode(buffer.getvalue()).decode("utf-8")
         except Exception:
-            return None
+            try:
+                with open(image_path, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                return None
 
     @classmethod
     def generate_with_llm(
@@ -168,11 +185,12 @@ class CaptionGenerator:
                 model=model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=350
+                max_tokens=350,
+                timeout=30
             )
             return response.choices[0].message.content
         except Exception as e:
-            console.print(f"[dim yellow]LLM Endpoint note: {e}[/dim yellow]")
+            console.print(f"[bold red][LLM Error][/bold red] Gagal memanggil endpoint model ({model}): {e}")
             return None
 
     @classmethod

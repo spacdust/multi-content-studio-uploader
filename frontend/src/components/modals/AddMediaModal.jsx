@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
   Upload,
-  CalendarClock,
   Layers,
   Film,
   Image as ImageIcon,
@@ -12,7 +11,6 @@ import {
   X,
   Sparkles,
 } from 'lucide-react';
-import FriendlyDateTimePicker from '../common/FriendlyDateTimePicker';
 import { getLocalNowIso, getLocalTodayDate } from '../../utils/dateUtils';
 
 export default function AddMediaModal({
@@ -377,37 +375,6 @@ export default function AddMediaModal({
             </div>
           )}
 
-          {/* Schedule Toggle & Picker */}
-          <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CalendarClock className="w-4 h-4 text-cyan-400" />
-                <span className="text-xs text-zinc-200 font-medium">Jadwalkan Waktu Tayang</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsScheduledUpload(!isScheduledUpload)}
-                className={`relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  isScheduledUpload ? 'bg-emerald-600' : 'bg-zinc-800'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    isScheduledUpload ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {isScheduledUpload && (
-              <div className="pt-2 border-t border-zinc-800 animate-fadeIn">
-                <FriendlyDateTimePicker
-                  value={uploadScheduleTime}
-                  onChange={(newVal) => setUploadScheduleTime(newVal)}
-                />
-              </div>
-            )}
-          </div>
 
           {/* Submit Button */}
           <button

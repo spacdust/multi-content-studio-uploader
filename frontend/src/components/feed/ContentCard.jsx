@@ -7,6 +7,10 @@ import {
   Clock,
   Trash2,
   Play,
+  ChevronUp,
+  ChevronDown,
+  GripVertical,
+  ShoppingBag,
 } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../utils/constants';
 import {
@@ -17,22 +21,108 @@ import CopyLinksButton from './CopyLinksButton';
 
 function ContentCard({
   item,
+  index = 0,
+  totalItems = 1,
   isSelected,
   onSelect,
   onDeleteClick,
   onToast,
+  onMoveItem,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }) {
   const isScheduled = Boolean(item.meta?.scheduled_time);
+  const tiktokProduct = item.meta?.tiktok_product;
+  const isYellowBasketOn = Boolean(
+    tiktokProduct && (tiktokProduct.enabled === true || tiktokProduct.enabled === 'true')
+  );
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', item.item_key);
+        if (onDragStart) onDragStart(item.item_key);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (onDragOver) onDragOver(item.item_key);
+      }}
+      onDragLeave={() => {
+        if (onDragLeave) onDragLeave();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const srcKey = e.dataTransfer.getData('text/plain');
+        if (onDrop) onDrop(srcKey, item.item_key);
+      }}
       onClick={() => onSelect(item.item_key)}
-      className={`group relative p-3.5 rounded-2xl border transition-all cursor-pointer flex gap-3.5 items-start ${
-        isSelected
+      className={`group relative p-3 sm:p-3.5 rounded-2xl border transition-all cursor-pointer flex gap-2.5 sm:gap-3.5 items-start ${
+        isDragOver
+          ? 'bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/50 scale-[1.01]'
+          : isDragging
+          ? 'opacity-40 border-dashed border-zinc-600'
+          : isSelected
           ? 'bg-zinc-900/90 border-zinc-700/80 shadow-md ring-1 ring-zinc-700'
           : 'bg-zinc-950/60 hover:bg-zinc-900/50 border-zinc-800/80 hover:border-zinc-700/60'
       }`}
     >
+      {/* Left Sequence Rank & Direct Reorder Column */}
+      <div
+        className="flex flex-col items-center justify-between self-stretch py-0.5 flex-shrink-0 text-zinc-500 select-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Move Up */}
+        <button
+          type="button"
+          disabled={index === 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onMoveItem) onMoveItem(item.item_key, 'up');
+          }}
+          title="Naikkan Urutan (Ke Atas)"
+          className={`p-1 rounded-md transition ${
+            index === 0
+              ? 'opacity-20 cursor-not-allowed'
+              : 'hover:bg-zinc-800 hover:text-emerald-400 cursor-pointer text-zinc-400 active:scale-95'
+          }`}
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Sequence Number & Grip Drag Handle */}
+        <div
+          className="flex flex-col items-center gap-0.5 cursor-grab active:cursor-grabbing py-1 group/grip"
+          title="Tarik / Geser untuk mengubah urutan antrean"
+        >
+          <GripVertical className="w-3.5 h-3.5 text-zinc-600 group-hover/grip:text-zinc-300 transition" />
+          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-md bg-zinc-800/90 border border-zinc-700/60 text-zinc-300 shadow-2xs">
+            #{index + 1}
+          </span>
+        </div>
+
+        {/* Move Down */}
+        <button
+          type="button"
+          disabled={index === totalItems - 1}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onMoveItem) onMoveItem(item.item_key, 'down');
+          }}
+          title="Turunkan Urutan (Ke Bawah)"
+          className={`p-1 rounded-md transition ${
+            index === totalItems - 1
+              ? 'opacity-20 cursor-not-allowed'
+              : 'hover:bg-zinc-800 hover:text-emerald-400 cursor-pointer text-zinc-400 active:scale-95'
+          }`}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
       {/* Thumbnail / Media Preview */}
       <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-xl bg-zinc-900 border border-zinc-800 flex-shrink-0 overflow-hidden relative flex items-center justify-center">
         {item.category === 'Video' ? (
@@ -80,7 +170,7 @@ function ContentCard({
         <div>
           {/* Header Badges: Category & Status */}
           <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {/* Category Badge */}
               <span
                 className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md border flex items-center gap-1 ${
@@ -98,6 +188,23 @@ function ContentCard({
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-cyan-950/60 border border-cyan-800/60 text-cyan-300 flex items-center gap-1">
                   <CalendarClock className="w-2.5 h-2.5" />
                   <span>Terjadwal</span>
+                </span>
+              )}
+
+              {/* Keranjang Kuning Badge */}
+              {isYellowBasketOn && (
+                <span
+                  title={
+                    tiktokProduct?.custom_title
+                      ? `Keranjang Kuning: "${tiktokProduct.custom_title}"\nProduk: ${tiktokProduct.title || ''}${tiktokProduct.format_price ? ` (${tiktokProduct.format_price})` : ''}`
+                      : tiktokProduct?.title
+                      ? `Keranjang Kuning: ${tiktokProduct.title}${tiktokProduct.format_price ? ` (${tiktokProduct.format_price})` : ''}`
+                      : 'Keranjang Kuning'
+                  }
+                  className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/50 text-amber-400 flex items-center gap-1 shadow-xs"
+                >
+                  <ShoppingBag className="w-2.5 h-2.5 text-amber-400 flex-shrink-0" />
+                  <span>Keranjang Kuning</span>
                 </span>
               )}
             </div>

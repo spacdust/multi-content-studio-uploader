@@ -28,7 +28,7 @@ export default function FriendlyDateTimePicker({ value, onChange }) {
   const [selMin, setSelMin] = useState(initialMin);
 
   const hoursList = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-  const minutesList = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+  const minutesList = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
   const emitChange = (d, h, m) => {
     const isoString = `${d}T${h}:${m}:00`;

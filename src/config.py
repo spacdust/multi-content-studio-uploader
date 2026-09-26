@@ -69,11 +69,39 @@ META_BUSINESS_HOME_URL = "https://business.facebook.com/latest/home"
 META_BUSINESS_COMPOSER_URL = "https://business.facebook.com/latest/composer"
 
 # Browser Configurations
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+def get_detected_chrome_user_agent() -> str:
+    """
+    Detects the installed Chrome browser version to guarantee that
+    the User-Agent and sec-ch-ua Client Hints match 100%.
+    A mismatch (e.g. UA Chrome 124 vs sec-ch-ua Chrome 153) triggers
+    WAF bot protection on TikTok Shop and suppresses seller features.
+    """
+    try:
+        import sys
+        if sys.platform == "win32":
+            import winreg
+            for path in [
+                r"Software\Google\Chrome\BLBeacon",
+                r"SOFTWARE\Google\Chrome\BLBeacon",
+                r"SOFTWARE\WOW6432Node\Google\Chrome\BLBeacon"
+            ]:
+                for hkey in [winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE]:
+                    try:
+                        with winreg.OpenKey(hkey, path) as key:
+                            val, _ = winreg.QueryValueEx(key, "version")
+                            if val:
+                                return f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{val} Safari/537.36"
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/153.0.8010.48 Safari/537.36"
+    )
+
+DEFAULT_USER_AGENT = get_detected_chrome_user_agent()
 
 VIEWPORT = {"width": 1440, "height": 900}
 
@@ -114,9 +142,9 @@ AUDIO_PRESETS = {
 
 def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list = None):
     """
-    Launches browser:
+    Launches browser with full anti-automation flags:
     - If headless=False: Opens visible maximized native Chrome window.
-    - If headless=True: Opens 100% invisible background headless Chromium (no window flash/flicker on Windows).
+    - If headless=True: Opens 100% invisible background headless Chromium.
     """
     if headless:
         headless_args = [
@@ -135,22 +163,25 @@ def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list
             headless_args.extend(extra_args)
         try:
             return p.chromium.launch(
-                headless=True,
-                slow_mo=0,
-                args=headless_args
-            )
-        except Exception:
-            return p.chromium.launch(
                 channel="chrome",
                 headless=True,
                 slow_mo=0,
-                args=headless_args
+                args=headless_args,
+                ignore_default_args=["--enable-automation"]
+            )
+        except Exception:
+            return p.chromium.launch(
+                headless=True,
+                slow_mo=0,
+                args=headless_args,
+                ignore_default_args=["--enable-automation"]
             )
     else:
         headed_args = [
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
+            "--disable-infobars",
             "--no-default-browser-check"
         ]
         if extra_args:
@@ -160,13 +191,15 @@ def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list
                 channel="chrome",
                 headless=False,
                 slow_mo=slow_mo,
-                args=headed_args
+                args=headed_args,
+                ignore_default_args=["--enable-automation"]
             )
         except Exception:
             return p.chromium.launch(
                 headless=False,
                 slow_mo=slow_mo,
-                args=headed_args
+                args=headed_args,
+                ignore_default_args=["--enable-automation"]
             )
 
 def get_safe_storage_state(state_file: Union[str, Path, None]) -> Optional[dict]:
@@ -187,8 +220,9 @@ def get_safe_storage_state(state_file: Union[str, Path, None]) -> Optional[dict]
         if not isinstance(data, dict):
             return None
         
-        # Strip bloated localStorage origins
-        data["origins"] = []
+        # Ensure valid origins structure (preserving authentic localStorage)
+        if "origins" not in data or not isinstance(data.get("origins"), list):
+            data["origins"] = []
         
         # Sanitize sameSite for each cookie
         for c in data.get("cookies", []):
