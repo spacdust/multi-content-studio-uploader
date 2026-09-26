@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0.."
-set ACCOUNT=Gus Kikin Official
+set ACCOUNT=Demo Account
 set /p USER_ACC="Masukkan Nama Akun target [tekan Enter untuk '%ACCOUNT%']: "
 if not "%USER_ACC%"=="" set ACCOUNT=%USER_ACC%
 

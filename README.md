@@ -54,7 +54,7 @@ Konten diatur secara terstruktur dan otomatis di dalam direktori `content/` berd
 
 ```
 content/
-├── Gus Kikin Official/                      <-- Folder Nama Akun 1
+├── Nama Akun 1/                            <-- Folder Akun 1 (contoh: Brand A)
 │   ├── Video/
 │   │   └── 2026-08-20/                     <-- Folder Tanggal (YYYY-MM-DD)
 │   │       ├── video-2026-08-20-01.mp4     <-- File Video
@@ -70,7 +70,7 @@ content/
 │               ├── Slide 2.jpg
 │               └── meta.json
 │
-└── Poros Waras/                            <-- Folder Nama Akun 2
+└── Nama Akun 2/                            <-- Folder Akun 2 (contoh: Brand B)
     ├── Video/
     ├── Poster/
     └── Carousel/
