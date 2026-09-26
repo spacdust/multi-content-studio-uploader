@@ -271,12 +271,64 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 - [x] **Interactive Obsidian Live Copy Modal:** Modal bertema gelap dengan indikator pemindaian live, tombol salin tautan per platform, dan tombol salin format lengkap laporan (WhatsApp ready).
 - [x] **Modal Persistence Lock:** Modal tidak akan tertutup secara otomatis oleh background polling dashboard, dan hanya tertutup jika pengguna mengklik tombol Tutup atau tombol X.
 
+### 🔹 Fase 37: Drag-and-Drop Interactive Queue Reordering & Manual Sequence Rank
+- [x] **Drag-and-Drop Antrean:** Memungkinkan pengguna menyeret kartu media langsung di panel antrean untuk menyusun urutan posting.
+- [x] **Tombol Chevron Cepat:** Tombol naik (`▲`) dan turun (`▼`) di samping nomor urut `#1`, `#2`, dst untuk penyesuaian posisi cepat.
+- [x] **Endpoint Queue Reorder:** Endpoint `POST /api/content/reorder-queue` untuk menyimpan preferensi susunan antrean manual.
+
+### 🔹 Fase 38: Fitur Upload Massal Terjadwal (Mass Scheduled Upload) & Jeda Waktu Bertahap
+- [x] **Relokasi Fitur Penjadwalan:** Memindahkan konfigurasi jadwal publikasi dari per-item satuan ke modal **Upload Massal** terpadu (`MassUploadModal.jsx`).
+- [x] **Waktu Mulai Tunggal + Interval Otomatis:** Pengguna hanya memasukkan waktu awal sekali saja, lalu sistem secara otomatis menghitung waktu posting bertahap untuk media-media selanjutnya berdasarkan jeda waktu yang dipilih.
+- [x] **Preset Jeda Waktu & Kustom Menit:** Pilihan jeda waktu 15 menit, 30 menit, 1 jam, atau input kustom menit sesuai kebutuhan strategi posting.
+- [x] **Quick Time Presets:** Shortcut waktu mulai praktis: *Malam Ini (19:30)*, *Besok Pagi (08:00)*, *Besok Malam (19:30)*, serta offset `+30m` / `+1h`.
+- [x] **Preview Progresif:** Pratinjau daftar urutan upload lengkap dengan indikator waktu tayang spesifik per item.
+
+### 🔹 Fase 39: Background Autonomous Scheduler Daemon & Multi-Account Conflict Resolution
+- [x] **Scheduler Engine Terintegrasi (`src/scheduler.py`):** Background thread daemon yang memantau timestamp `scheduled_time` setiap interval 30 detik tanpa membebani performa UI.
+- [x] **Multi-Account Safe Execution:** Penanganan konflik jadwal antar akun secara aman (mekanisme locking/antrean mutex) sehingga browser upload tidak saling bertabrakan atau menimpa satu sama lain saat waktu publikasi bersamaan.
+- [x] **Live Scheduler Status Endpoint:** Endpoint `/api/scheduler/status` dan `/api/scheduler/trigger` untuk memantau status scheduler secara real-time dari frontend.
+
+### 🔹 Fase 40: Antisipasi Bug Popup Video Processing di TikTok Studio
+- [x] **Deteksi Popup Pemrosesan Video:** Otomatis mendeteksi dialog popup konfirmasi saat video masih diproses oleh server TikTok (*"Video is processing" / "Lanjutkan posting"*).
+- [x] **Auto-Confirm Post:** Bot secara otomatis menekan tombol konfirmasi lanjut sehingga proses publikasi TikTok tidak terhenti atau gagal posting.
+
+### 🔹 Fase 41: Integrasi Penuh Keranjang Kuning TikTok Shop (Product Showcase Link)
+- [x] **Sinkronisasi Sesi Toko:** Menghubungkan sesi browser creator dengan sesi TikTok Shop sehingga seluruh produk toko muncul lengkap dan dapat dipilih.
+- [x] **Endpoint Pencarian Produk Toko:** Endpoint `/api/tiktok/products` untuk memuat dan mencari katalog produk TikTok Shop secara real-time.
+- [x] **UI Controller Studio Inspector (`TikTokProductCard.jsx`):**
+  - Switch ON/OFF tautan keranjang kuning khusus TikTok.
+  - Form pencarian produk toko dan daftar produk dengan thumbnail, harga, dan stok.
+  - Kartu preview produk yang dipilih dan tombol ganti produk.
+  - Kolom kustom **Nama Keranjang Kuning (Tampil di Video)** dengan batasan maksimal 30 karakter.
+- [x] **Automasi Playwright TikTok Product Link (`src/tiktok_uploader.py`):**
+  - Mengklik tombol *Add link* $\rightarrow$ *Product*.
+  - Mencari dan memilih produk yang sesuai dari katalog toko.
+  - Mengetik nama kustom keranjang kuning dan menekan tombol *Add/Tambahkan* sebelum mempublikasikan video.
+- [x] **Label Bersih & Minimalis di Antrean Konten:** Menampilkan badge `[ 🛍️ Keranjang Kuning ]` di header card antrean kiri untuk item yang memiliki tautan produk aktif.
+- [x] **Dukungan Penuh di Upload Massal:** Item yang memiliki tautan produk tetap membawa metadata keranjang kuning secara utuh pada pipeline upload massal terjadwal.
+
+### 🔹 Fase 42: Perbaikan Presisi Dialog-Scoped File Input & Navigasi Facebook Reels
+- [x] **Eliminasi Shadowing Multi-Input Facebook:** Memperbaiki selektor upload Reel yang sebelumnya salah menargetkan hidden file input feed latar belakang.
+- [x] **Dialog-Scoped Locator:** Menargetkan secara presisi `div[role='dialog'] input[type='file']` di dalam modal *Buat reel*.
+- [x] **Explicit Wait Navigasi Multi-Tahap:** Menambahkan explicit wait untuk tombol *Berikutnya* (tahap edit dan tahap pengaturan) serta selektor tombol *Posting* dan penanganan popup event *Terbitkan Postingan Asli*.
+- [x] **Verifikasi Live 100% Berhasil:** Teruji secara nyata menerbitkan video Facebook Reel secara otomatis hingga selesai.
+
+### 🔹 Fase 43: Standarisasi Port UI Dashboard di `http://127.0.0.1:8000`
+- [x] **Penyelarasan Host & Port:** Memperbarui `start_ui.bat` dan backend FastAPI uvicorn agar secara konsisten dan stabil berjalan di `http://127.0.0.1:8000`.
+
 ---
 
 ## 📊 Tabel Matriks Fitur & Status Terkini (v1.1)
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
+| **Upload Massal Terjadwal** | ✅ **Stabil (v1.2)** | Waktu awal + interval jeda bertahap otomatis (15m, 30m, 1h, kustom) |
+| **Background Auto-Scheduler** | ✅ **Stabil (v1.2)** | Daemon thread otomatis mengeksekusi publikasi saat timestamp tiba |
+| **Keranjang Kuning TikTok Shop** | ✅ **Stabil (v1.2)** | Pencarian produk toko, penamaan custom keranjang, & automasi link |
+| **Label Keranjang Kuning di Card** | ✅ **Stabil (v1.2)** | Badge ringkas `[ 🛍️ Keranjang Kuning ]` di header card antrean |
+| **Drag & Drop Queue Reorder** | ✅ **Stabil (v1.2)** | Geser posisi kartu antrean interaktif + penomoran urutan dinamis |
+| **Popup Processing Dismissal** | ✅ **Stabil** | Otomatis menekan konfirmasi lanjut saat video diproses TikTok |
+| **Facebook Reels Scoped Input** | ✅ **Stabil** | Selektor input scoped ke modal Reel tanpa terbajak background feed |
 | **Precision Post Link Scanner** | ✅ **Stabil (v1.1)** | 100% akurat memindai link TikTok, IG, dan FB sesuai format |
 | **Obsidian Live Copy Modal** | ✅ **Stabil (v1.1)** | Modal progress live, salin per-platform, & format laporan WA |
 | **Tri-Platform Master Publish** | ✅ **Stabil** | 1-klik publikasi berurutan ke TikTok, Instagram, dan Facebook |
@@ -414,7 +466,9 @@ python -m unittest discover tests
 
 ## 🚀 Roadmap Pengembangan Selanjutnya
 
-1. [ ] **Instagram Carousel Multi-Image Poster Live Flow:** Pengujian alur posting carousel multi-slide visual di Instagram.
-2. [ ] **Background Audio Merger untuk Carousel:** Otomatisasi penggabungan kumpulan slide gambar menjadi video carousel berlatar musik sebelum upload ke TikTok Photo Mode.
-3. [ ] **Scheduler Daemon / Cron Mode:** Service latar belakang yang mengeksekusi upload otomatis sesuai timestamp `scheduled_time`.
-4. [ ] **Notifikasi Telegram / WhatsApp Bot:** Mengirim laporan keberhasilan upload beserta bukti screenshot ke grup tim konten.
+1. [x] **Scheduler Daemon Engine (`src/scheduler.py`):** Service latar belakang thread-safe yang memantau dan mengeksekusi upload otomatis sesuai timestamp `scheduled_time` dengan proteksi mutex konflik multi-akun.
+2. [x] **TikTok Shop Showcase Integration:** Penautan produk keranjang kuning otomatis langsung dari antrean studio.
+3. [ ] **Instagram Carousel Multi-Image Poster Live Flow:** Pengujian alur posting carousel multi-slide visual di Instagram.
+4. [ ] **Background Audio Merger untuk Carousel:** Otomatisasi penggabungan kumpulan slide gambar menjadi video carousel berlatar musik sebelum upload ke TikTok Photo Mode.
+5. [ ] **Notifikasi Telegram / WhatsApp Bot:** Mengirim laporan keberhasilan upload beserta bukti screenshot ke grup tim konten.
+6. [ ] **Trending Hashtags Recommender:** Rekomendasi tagar populer secara cerdas berdasarkan kategori produk dan niche akun.
