@@ -182,7 +182,10 @@ def launch_browser(p, headless: bool = False, slow_mo: int = 0, extra_args: list
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-infobars",
-            "--no-default-browser-check"
+            "--no-default-browser-check",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding"
         ]
         if extra_args:
             headed_args.extend(extra_args)

@@ -316,12 +316,47 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 ### 🔹 Fase 43: Standarisasi Port UI Dashboard di `http://127.0.0.1:8000`
 - [x] **Penyelarasan Host & Port:** Memperbarui `start_ui.bat` dan backend FastAPI uvicorn agar secara konsisten dan stabil berjalan di `http://127.0.0.1:8000`.
 
+### 🔹 Fase 44: Penguatan Total Arsitektur Upload Multi-Platform & Penjadwalan Terpercaya
+- [x] **Eliminasi Bug Fatal Scheduler Tertinggal:** Memperbaiki logika `get_scheduled_items()` di mana sebelumnya konten yang sudah terupload di satu platform (misal TikTok) langsung dilewati dan mengabaikan platform lain (Instagram/Facebook). Kini scheduler memvalidasi sisa platform (`remaining_platforms`) dan hanya menandai selesai jika seluruh target telah terpublikasi.
+- [x] **Fresh State Cache Sync:** Thread penjadwalan otomatis menyinkronkan data item dari disk (`scan_content`) tepat sebelum eksekusi untuk memastikan daftar `uploaded_platforms` selalu akurat.
+- [x] **Mekanisme Auto-Retry Multi-Platform:** Menambahkan wrapper `run_upload_with_retry` pada `src/content_manager.py` yang otomatis mengulang percobaan upload hingga 2x dengan jeda 5 detik jika terjadi kegagalan sementara (*transient error* / *network timeout*).
+- [x] **Deduplikasi Platform Sudah Terbit:** Pipeline upload otomatis mendeteksi platform yang sudah terbit sebelumnya dan melewatinya secara cerdas, mencegah risiko posting ganda.
+- [x] **Inter-Platform Cooldown (3s):** Memberikan jeda aman 3 detik antar platform untuk pembersihan memori browser dan pelepasan soket jaringan.
+- [x] **Penguatan Timeout & Verifikasi TikTok Studio:** Memperpanjang batas waktu polling dari 45s ke 120s untuk video (dan 75s untuk Poster/Carousel). Jika batas waktu habis tanpa konfirmasi, sistem kini mengembalikan `False` (bukan *false positive* `True`) sehingga memicu retry otomatis.
+- [x] **Verifikasi Instagram Web Asli & Anti-Hang:** Memperbaiki validasi status posting Instagram sehingga mendeteksi popup kesalahan server secara instan dan mencegah browser tertutup sebelum file terunggah utuh.
+- [x] **Rute Langsung Facebook Reels & Popup Handling:** Menambahkan rute langsung `https://www.facebook.com/reel/create` dan penanganan popup pergantian profil/halaman untuk mencegah kegagalan deteksi tombol upload.
+- [x] **Anti Background Window Throttling Chrome:** Menambahkan flag `--disable-background-timer-throttling`, `--disable-backgrounding-occluded-windows`, dan `--disable-renderer-backgrounding` agar eksekusi penjadwalan di background tidak membeku.
+
+### 🔹 Fase 45: Anti-Infinite-Looping Scheduler, Real Cookie Expiry Verification, & Stale Schedule Protection
+- [x] **Eliminasi Infinite Looping Browser Chrome:** Mencegah scheduler membuka browser berulang kali saat terjadi kegagalan. Menerapkan `_failed_attempts` tracking dan jeda pendinginan `_failed_cooldown` (15 menit untuk kegagalan sementara, dan dinonaktifkan 24 jam jika gagal 3 kali berturut-turut).
+- [x] **Validasi Timestamp Kedaluwarsa Cookie Nyata (`src/auth_manager.py`):** Fungsi `is_tiktok_authenticated`, `is_instagram_authenticated`, dan `is_facebook_authenticated` kini memverifikasi timestamp `expires` cookie secara matematis terhadap waktu sekarang. Cookie kadaluarsa otomatis dianggap `False` sehingga bot tidak akan mencoba membuka browser upload.
+- [x] **Sistem Invalidasi Sesi Otomatis (`invalidate_session`):** Jika uploader mendapati sesi di-redirect ke halaman login saat proses upload berlangsung, file sesi kadaluarsa langsung dihapus dan status diubah menjadi *Belum Login*.
+- [x] **Filter Eliminasi Jadwal Basi (> 24 Jam):** Fungsi `get_scheduled_items()` otomatis mengabaikan jadwal lampau yang sudah terlewat lebih dari 24 jam (`diff_seconds < -86400`). Jadwal lama tidak akan lagi dihitung di antrean `total_scheduled_pending` maupun memicu eksekusi mendadak saat aplikasi dibuka.
+- [x] **Pembersihan Metadata Sisa & Eliminasi Akun Dummy:**
+  - Metadata `scheduled_time` pada item lama dari bulan September dibersihkan sehingga indikator navbar menampilkan `0 Terjadwal`.
+  - Folder dummy `testacc` dan `non_existent_account_12345` dihapus total dari direktori `accounts/` dan `content/`.
+  - Seluruh pengujian unit diisolasi menggunakan mock dan virtual `tempfile` sehingga pengujian 100% steril tanpa mengotori filesystem produksi.
+### 🔹 Fase 46: Auto-Detection Model LLM & Dropdown Interaktif pada Pengaturan AI Engine
+- [x] **Backend Model Discovery Endpoint (`/api/settings/models`):** Mengimplementasikan deteksi model dual-layer di `src/server.py` (`OpenAI(base_url=..., api_key=...).models.list()` dengan fallback direct HTTP GET `/models` yang mendukung format standar OpenAI, Gemini API, maupun Ollama).
+- [x] **Auto-Detect saat Buka Modal Pengaturan:** Ketika modal Pengaturan dibuka (`SettingsModal`), daftar model AI dari endpoint aktif otomatis dipindai di latar belakang dan disajikan secara instan.
+- [x] **Dropdown Interaktif & Toggle Mode Manual:** Kolom *Model Name* otomatis bertransformasi menjadi dropdown `<select>` obsidian yang rapi saat model terdeteksi, dengan opsi model aktif saat ini tetap terpilih. Pengguna juga dapat menekan tautan `[Ketik Manual]` atau `[← Pilih Dropdown]` serta tombol reload `[Deteksi Model]` kapan saja.
+- [x] **Penyelarasan Endpoint `/api/settings/test-llm`:** Menambahkan alias endpoint `/api/settings/test-llm` mendampingi `/api/settings/test` dengan pengembalian latensi (ms), nama model, dan cuplikan respon AI.
+- [x] **Unit Testing Lengkap & Terisolasi (`tests/test_settings_models.py`):** Menambahkan 6 unit test baru untuk memvalidasi parser SDK, fallback HTTP, response Gemini format, dan FastAPI endpoints. Total 23/23 unit test berhasil (*100% Passing*).
+- [x] **Rebuild Produksi React:** Asset bundle produksi `frontend/dist` telah di-build ulang menggunakan Vite.
+
 ---
 
-## 📊 Tabel Matriks Fitur & Status Terkini (v1.1)
+## 📊 Tabel Matriks Fitur & Status Terkini (v1.3)
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
+| **Auto-Detect Model AI Dropdown** | ✅ **Stabil (v1.3)** | Deteksi otomatis model dari endpoint (OpenAI/Gemini/Ollama) & pemilih dropdown |
+| **Robust Multi-Platform Scheduler** | ✅ **Stabil (v1.3)** | 0 platform tertinggal, sinkronisasi state disk, & auto-skip terbit |
+| **Anti-Infinite-Loop & Cooldown Engine** | ✅ **Stabil (v1.3)** | Cooldown 15m saat gagal, max 3x retry, cegah Chrome looping |
+| **Cookie Expiry & Auto-Invalidation** | ✅ **Stabil (v1.3)** | Validasi timestamp `expires`, hapus sesi mati saat redirect login |
+| **Stale Schedule Filter (>24h)** | ✅ **Stabil (v1.3)** | Otomatis abaikan jadwal basi lampau, 0 false pending count |
+| **Automated Upload Retry System** | ✅ **Stabil (v1.3)** | Auto-retry 2x dengan jeda cerdas saat terjadi error sementara |
+| **Anti-Throttling Background Engine** | ✅ **Stabil (v1.3)** | Flag Chromium anti-sleep saat jendela tertutup/di background |
 | **Upload Massal Terjadwal** | ✅ **Stabil (v1.2)** | Waktu awal + interval jeda bertahap otomatis (15m, 30m, 1h, kustom) |
 | **Background Auto-Scheduler** | ✅ **Stabil (v1.2)** | Daemon thread otomatis mengeksekusi publikasi saat timestamp tiba |
 | **Keranjang Kuning TikTok Shop** | ✅ **Stabil (v1.2)** | Pencarian produk toko, penamaan custom keranjang, & automasi link |
@@ -380,7 +415,7 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 | **LLM Vision Auto-Caption** | ✅ **Stabil** | Analisis frame video nyata dengan vision model |
 | **Aturan Bebas Emoji (No Emojis)** | ✅ **Stabil** | 100% teks bersih tanpa simbol emotikon |
 | **Maksimal Tepat 4 Hashtag** | ✅ **Stabil** | Filter ketat pembatas 4 tagar relevan |
-| **Unit Test Coverage** | ✅ **100% Green** | 6 unit test passing |
+| **Unit Test Coverage** | ✅ **100% Green** | 17 unit test passing (Regression & Scheduler/Retry/Uploader) |
 
 ---
 

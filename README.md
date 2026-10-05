@@ -1,67 +1,75 @@
-# 🎬 Multi-Content Studio Uploader
+# 🎬 Content Uploader Studio (PRO)
 
-Aplikasi bot dan dashboard visual untuk mengelola dan mengunggah konten media sosial (**TikTok, Instagram, dan Facebook**) secara otomatis dalam satu tempat. 
+Aplikasi desktop studio dan dashboard web interaktif untuk mengelola serta mengunggah konten media sosial (**TikTok, Instagram, dan Facebook**) secara otomatis, terjadwal, dan rapi dalam satu layar kendali.
 
-Tidak perlu lagi login bolak-balik atau upload manual satu per satu di tiap platform. Cukup siapkan konten di dashboard, atur caption atau jadwalnya, dan biarkan bot yang bekerja!
+Tidak perlu lagi repot login bolak-balik, membuka banyak tab peramban, atau posting manual satu per satu di setiap platform. Cukup siapkan konten di dashboard, atur narasi caption atau jadwal tayangnya, dan biarkan sistem otomatisasi yang bekerja untukmu!
 
 ---
 
-## ✨ Apa Saja yang Bisa Dilakukan?
+## ✨ Fitur-Fitur Utama
 
-- 🚀 **1-Klik Upload ke 3 Platform Sekaligus**  
-  Konten Anda otomatis diunggah berurutan ke **TikTok Studio**, **Instagram (Reels / Feed)**, dan **Facebook Fanspage (Reels / Foto)**.
+- 🚀 **1-Klik Upload ke 3 Platform Sekaligus (Tri-Platform Master)**  
+  Konten Anda otomatis dipublikasikan secara berurutan (*sequential*) ke **TikTok Studio**, **Instagram (Reels / Feed / Carousel)**, dan **Facebook Fanspage (Reels / Foto)** tanpa risiko tabrakan sesi.
 
-- ⏰ **Upload Massal & Penjadwalan Otomatis dengan Jeda Waktu**  
-  Punya banyak video untuk tayang hari ini? Cukup atur jam mulai pertama kali dan tentukan jeda waktunya (misalnya tiap 30 menit atau 1 jam sekali). Antrean berikutnya akan dijadwalkan otomatis dan diposting sendiri di latar belakang via auto-scheduler.
+- 🤖 **Auto-Detect Model AI & Pemilihan Model Fleksibel (Baru!)**  
+  Ingin memakai Gemini, OpenAI, Claude, Groq, Ollama lokal, atau model AI lainnya? Cukup masukkan Base URL & API Key di menu **Pengaturan**, klik tombol **Deteksi Model**, dan seluruh model AI yang tersedia dari endpoint akan langsung terbaca otomatis dalam menu dropdown. Anda juga bisa mengetik nama model kustom secara manual kapan saja.
 
-- 🛒 **Dukungan Keranjang Kuning (TikTok Shop)**  
-  Tinggal aktifkan switch keranjang kuning, cari nama produk dari tokomu, pilih produk yang cocok, dan beri nama label keranjang kuning yang pas untuk videomu. Bot akan otomatis menautkannya saat upload!
+- ⏰ **Penjadwalan Otomatis & Upload Massal Bertahap (Smart Auto-Scheduler)**  
+  Punya banyak video yang ingin diposting hari ini? Cukup atur jam tayang pertama dan pilih interval jeda waktu (misal tiap 15 menit, 30 menit, atau 1 jam sekali). Antrean media akan dijadwalkan otomatis dan dieksekusi secara mulus di latar belakang oleh daemon scheduler.
 
-- ✍️ **Bikin Caption Otomatis Pakai AI**  
-  Bingung mau nulis caption apa? Ada tombol **AI Caption** yang bisa menganalisis isi video atau gambarmu dan membuatkan caption yang pas beserta hashtag yang relevan (maksimal 4 hashtag agar tetap rapi).
+- 🛡️ **Mesin Penjadwalan Tangguh (Anti-Gagal & Zero Platform Drop)**  
+  - **Tanpa Platform Tertinggal:** Memastikan seluruh platform yang ditargetkan (TikTok, Instagram, Facebook) terbit tuntas. Jika satu platform baru selesai, bot akan melanjutkan platform yang tersisa tanpa melewatkannya.
+  - **Proteksi Anti-Infinite Loop:** Bot tidak akan membuka-buka jendela Chrome terus-menerus jika ada gangguan jaringan atau sesi kedaluwarsa. Sistem menerapkan mekanisme cooldown cerdas dan auto-retry hingga 2x.
+  - **Pencegahan Jadwal Basi:** Jadwal lampau yang sudah lewat lebih dari 24 jam otomatis disaring sehingga indikator jadwal tetap bersih dan akurat.
 
-- 🔗 **Ambil Link Postingan Otomatis (Siap Kirim ke WhatsApp)**  
-  Setelah konten berhasil diposting, bot bisa langsung mencari dan mengambil link publik video di TikTok, Instagram, dan Facebook. Formatnya sudah dirapikan, tinggal sekali klik tombol **Salin Semua Format** untuk dikirim ke chat WhatsApp atau laporan klien.
+- 🛒 **Dukungan Keranjang Kuning (TikTok Shop Showcase)**  
+  Ingin menautkan produk jualan ke video TikTok? Aktifkan switch keranjang kuning, cari nama produk dari katalog tokomu, pilih produk yang sesuai, dan beri nama label keranjang kuning kustom (maksimal 30 karakter). Bot akan otomatis mengaitkannya ke video saat dipublikasikan!
 
-- 🔀 **Atur Urutan Antrean dengan Mudah**  
-  Urutan postingan bisa diubah sesuka hati. Cukup seret (drag-and-drop) kartu media di antrean atau pakai tombol panah naik/turun.
+- ✍️ **Pembuat Caption Otomatis Berbasis AI**  
+  Kehabisan ide caption? Klik tombol **AI Caption** untuk menganalisis isi video atau gambarmu. AI akan meracik narasi yang menarik, engaging, dan dilengkapi rekomendasi hashtag relevan yang rapi (dibatasi maksimal 4 hashtag agar tidak terkesan spam).
+
+- 🔗 **Ambil Link Postingan Otomatis (Format Laporan WhatsApp Siap Kirim)**  
+  Setelah konten berhasil diposting, fitur **Link Finder** dapat memindai tautan publik video di TikTok, Instagram, dan Facebook. Cukup sekali klik tombol **Salin Semua Format**, laporan rapi langsung tersalin di clipboard dan siap dikirim ke grup WhatsApp atau laporan klien.
+
+- 🔀 **Atur Urutan Antrean Konten Sesuka Hati (Drag & Drop)**  
+  Urutan penerbitan media dapat disesuaikan dengan mudah. Cukup seret (*drag-and-drop*) kartu konten di antrean atau gunakan tombol panah naik/turun.
 
 - 👥 **Multi-Akun Mandiri & Terisolasi**  
-  Bisa mengelola banyak akun atau brand sekaligus. Setiap akun punya sesi login, profil, dan riwayat postingannya sendiri tanpa risiko tertukar.
+  Kelola banyak akun atau brand sekaligus tanpa khawatir data tercampur. Setiap akun memiliki sesi login, folder konten, dan riwayat postingannya sendiri secara mandiri.
 
 ---
 
-## 📂 Cara Menata Folder Konten
+## 📂 Struktur Folder Konten
 
-Cukup masukkan file media Anda ke dalam folder `content/` dengan struktur seperti berikut:
+Cukup letakkan file media Anda ke dalam folder `content/` dengan struktur seperti berikut:
 
 ```
 content/
-├── Nama Akun 1/                            <-- Folder Akun 1 (contoh: Brand A)
-│   ├── Video/                              <-- Kategori Video (Reels / TikTok)
-│   │   └── 2026-08-20/                     <-- Folder Tanggal (YYYY-MM-DD)
-│   │       ├── video-2026-08-20-01.mp4     <-- File video
-│   │       └── video-2026-08-20-01.json    <-- Metadata caption & settingan
+├── Nama Akun 1/                            <-- Folder Akun 1 (contoh: Brand Official)
+│   ├── Video/                              <-- Kategori Video (Reels / TikTok / FB Reel)
+│   │   └── 2026-10-05/                     <-- Folder Tanggal (YYYY-MM-DD)
+│   │       ├── video-2026-10-05-01.mp4     <-- File video
+│   │       └── video-2026-10-05-01.json    <-- Metadata caption, jadwal, & keranjang kuning
 │   ├── Poster/                             <-- Kategori Foto / Gambar Tunggal
-│   │   └── 2026-08-20/
-│   │       └── poster-2026-08-20-01.jpeg
+│   │   └── 2026-10-05/
+│   │       └── poster-2026-10-05-01.jpeg
 │   └── Carousel/                           <-- Kategori Carousel (Multi-Slide)
-│       └── 2026-08-20/
-│           └── carousel-2026-08-20-01/
+│       └── 2026-10-05/
+│           └── carousel-2026-10-05-01/
 │               ├── slide 1.jpg
 │               └── slide 2.jpg
 │
-└── Nama Akun 2/                            <-- Folder Akun 2 (contoh: Brand B)
+└── Nama Akun 2/                            <-- Folder Akun 2 (contoh: Toko Online)
     ├── Video/
     ├── Poster/
     └── Carousel/
 ```
 
-> **Tips:** Penamaan file seperti `video-YYYY-MM-DD-01.mp4` juga akan otomatis dibuatkan secara rapi jika Anda menambahkan media langsung lewat tombol **`+ Tambah Media`** di dashboard.
+> 💡 **Tips Praktis:** Anda tidak perlu membuat folder secara manual. Cukup gunakan tombol **`+ Tambah Media`** di dashboard web, sistem akan otomatis memberi nomor urut dan menata foldernya secara rapi.
 
 ---
 
-## 🚀 Cara Menjalankan
+## 🚀 Cara Menjalankan Aplikasi
 
 ### 1. Persiapan Awal (Hanya Sekali di Awal)
 Pastikan di komputermu sudah terpasang **Python** (versi 3.10+) dan **Node.js**.
@@ -78,16 +86,17 @@ Pastikan di komputermu sudah terpasang **Python** (versi 3.10+) dan **Node.js**.
    npm run build
    cd ..
    ```
-3. *(Opsional)* Jika ingin memakai fitur AI Caption, salin file `.env.example` menjadi `.env` lalu masukkan API Key AI yang Anda miliki.
 
 ---
 
-### 2. Buka Dashboard Studio
-Cara paling mudah, cukup klik dua kali file:
+### 2. Membuka Dashboard Studio
+
+Cara paling praktis, cukup klik dua kali file shortcut:
 ```powershell
 start_ui.bat
 ```
-Atau bisa juga lewat terminal:
+
+Atau jika ingin menjalankannya lewat terminal:
 ```powershell
 python -m src.server
 ```
@@ -97,22 +106,24 @@ Setelah aplikasi berjalan, buka browser di alamat:
 
 ---
 
-## 💡 Tips & Panduan Pemakaian Singkat
+## 💡 Panduan Pemakaian Singkat
 
-1. **Login Akun Media Sosial Pertama Kali:**  
-   Buka dashboard, klik tombol akun di kanan atas, pilih **Kelola Akun**, lalu klik tombol **Hubungkan** pada platform yang diinginkan (TikTok, Instagram, atau Facebook). Jendela browser akan terbuka untuk login seperti biasa. Setelah selesai, status akun akan otomatis tersambung.
+1. **Menghubungkan Akun Media Sosial:**  
+   Buka dashboard web, klik tombol profil akun di kanan atas, pilih **Kelola Akun**, lalu klik tombol **Hubungkan** pada platform yang diinginkan (TikTok, Instagram, atau Facebook). Jendela peramban Playwright akan terbuka di layar fisik agar kamu bisa login dengan aman. Setelah login selesai, status akun akan berubah menjadi **`● TERHUBUNG`** (Hijau).
 
-2. **Menyiapkan Konten:**  
-   Pilih akun yang ingin dikelola. Klik **`+ Tambah Media`** untuk menambahkan video, poster, atau slide carousel. Di panel kanan (Studio Inspector), kamu bisa mengatur caption, memilih sound TikTok, atau mengaktifkan keranjang kuning produk. Jangan lupa klik **Simpan**.
+2. **Menyiapkan Konten & Caption:**  
+   Pilih akun yang ingin dikelola. Klik **`+ Tambah Media`** untuk menambahkan video, poster, atau slide carousel. Di panel kanan (*Studio Inspector*), kamu bisa merapikan caption, membuat caption otomatis dengan AI, mengatur jadwal tayang, atau menautkan keranjang kuning produk. Jangan lupa tekan tombol **Simpan**.
 
 3. **Mempublikasikan Konten:**  
-   - **Upload Satuan:** Klik tombol hijau **`Publish Konten`** di panel kanan.  
-   - **Upload Massal:** Klik tombol **`Upload Massal`** di atas daftar antrean untuk menerbitkan beberapa konten sekaligus secara berurutan dengan jeda waktu otomatis.
+   - **Upload Satuan:** Klik tombol hijau **`Publish Konten`** di panel kanan. Proses upload akan berjalan secara visual dengan log proses real-time.  
+   - **Upload Massal Terjadwal:** Klik tombol **`Upload Massal`** di atas daftar antrean untuk menerbitkan seluruh konten secara bertahap dengan jeda waktu yang kamu tentukan.
 
-4. **Mengambil Link Hasil Postingan:**  
-   Setelah status postingan berhasil (berwarna hijau), klik tombol **`Salin Link`** pada kartu media untuk menyalin link postingan yang siap dibagikan ke tim atau klien.
+4. **Mengambil Link Laporan Postingan:**  
+   Setelah postingan berhasil terbit di media sosial, klik tombol **`Salin Link`** pada kartu media untuk menyalin tautan publik video atau menggunakan tombol **`Salin Format WA`** untuk laporan instan siap kirim.
 
 ---
 
 ## 🔒 Privasi & Keamanan Data
-Semua file sesi login (`*_state.json`), cookie browser, kunci API (`.env`), dan file media pribadi Anda disimpan secara lokal di komputermu dan sudah diatur di `.gitignore` sehingga tidak akan terunggah ke repositori publik.
+
+- Seluruh data sesi login (`*_state.json`), cookie browser, file kredensial (`.env`), serta file video dan foto pribadi Anda **100% tersimpan secara lokal** di komputer Anda sendiri.
+- File-file sensitif telah dilindungi dalam `.gitignore` sehingga tidak akan pernah terunggah ke repositori publik.

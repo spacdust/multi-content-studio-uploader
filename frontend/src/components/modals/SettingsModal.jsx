@@ -10,6 +10,11 @@ export default function SettingsModal({
   setLlmApiKey,
   llmModel,
   setLlmModel,
+  availableModels = [],
+  loadingModels = false,
+  detectModels = () => {},
+  isCustomModel = false,
+  setIsCustomModel = () => {},
   savingSettings,
   testingLlm,
   testResult,
@@ -67,15 +72,76 @@ export default function SettingsModal({
 
           {/* Model Name */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-zinc-300 font-medium">Model Name:</label>
-            <input
-              type="text"
-              required
-              placeholder="gemini-2.5-flash"
-              value={llmModel}
-              onChange={(e) => setLlmModel(e.target.value)}
-              className="bg-zinc-950 border border-zinc-800 px-3 py-2 rounded-xl text-xs text-zinc-100 outline-none focus:border-zinc-600 font-mono"
-            />
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-zinc-300 font-medium flex items-center gap-1.5">
+                Model Name:
+                {availableModels && availableModels.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-700/50 text-emerald-400 font-normal">
+                    {availableModels.length} terdeteksi
+                  </span>
+                )}
+              </label>
+
+              <div className="flex items-center gap-2">
+                {availableModels && availableModels.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomModel(!isCustomModel)}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 transition underline underline-offset-2"
+                  >
+                    {isCustomModel ? '← Pilih Dropdown' : 'Ketik Manual'}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => detectModels(llmBaseUrl, llmApiKey, true)}
+                  disabled={loadingModels || !llmBaseUrl}
+                  title="Deteksi ulang model yang tersedia dari endpoint"
+                  className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 p-1 rounded hover:bg-zinc-800 transition disabled:opacity-40"
+                >
+                  <RefreshCw className={`w-3 h-3 ${loadingModels ? 'animate-spin text-emerald-400' : ''}`} />
+                  <span className="text-[11px]">{loadingModels ? 'Mendeteksi...' : 'Deteksi Model'}</span>
+                </button>
+              </div>
+            </div>
+
+            {!isCustomModel && availableModels && availableModels.length > 0 ? (
+              <div className="relative">
+                <select
+                  value={llmModel}
+                  onChange={(e) => setLlmModel(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 rounded-xl text-xs text-zinc-100 outline-none focus:border-zinc-600 font-mono appearance-none cursor-pointer pr-8"
+                >
+                  {llmModel && !availableModels.includes(llmModel) && (
+                    <option value={llmModel}>{llmModel} (Model Aktif Saat Ini)</option>
+                  )}
+                  {availableModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500 text-[10px]">
+                  ▼
+                </div>
+              </div>
+            ) : (
+              <input
+                type="text"
+                required
+                placeholder="cth: gemini-2.5-flash, ag/gemini-3.7-flash, gpt-4o-mini"
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                className="bg-zinc-950 border border-zinc-800 px-3 py-2 rounded-xl text-xs text-zinc-100 outline-none focus:border-zinc-600 font-mono"
+              />
+            )}
+
+            {availableModels && availableModels.length === 0 && (
+              <p className="text-[11px] text-zinc-500">
+                Belum ada model terdeteksi. Tekan tombol <strong className="text-zinc-400">Deteksi Model</strong> di atas untuk memuat daftar otomatis.
+              </p>
+            )}
           </div>
 
           {/* Live Test Result Alert */}

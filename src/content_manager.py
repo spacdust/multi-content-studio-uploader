@@ -21,6 +21,7 @@ from src.config import (
 from src.caption_generator import CaptionGenerator
 from src.tiktok_uploader import TikTokUploader
 from src.instagram_uploader import InstagramUploader
+from src.facebook_uploader import FacebookUploader
 from src.account_manager import AccountManager
 from src.auth_manager import AuthManager
 
@@ -602,19 +603,44 @@ class ContentManager:
         ig_caption = cls.get_platform_caption(caption, meta.get("instagram_mentions", ""))
         fb_caption = caption
 
-        # 1. Tentukan platform target: jika "all", deteksi platform yang sesi login sertifikasinya aktif
+        # 1. Tentukan platform target: jika "all", hormati konfigurasi item dan deteksi sesi aktif
         if platform_filter == "all":
-            target_platforms = []
-            if AuthManager.is_authenticated(account, "tiktok"):
-                target_platforms.append("tiktok")
-            if AuthManager.is_authenticated(account, "instagram") or AuthManager.is_instagram_mobile_authenticated(account):
-                target_platforms.append("instagram")
-            if AuthManager.is_authenticated(account, "facebook"):
-                target_platforms.append("facebook")
+            configured_platforms = meta.get("platforms")
+            if configured_platforms and isinstance(configured_platforms, list):
+                target_platforms = [p.lower() for p in configured_platforms if AuthManager.is_authenticated(account, p)]
+            else:
+                target_platforms = []
+                if AuthManager.is_authenticated(account, "tiktok"):
+                    target_platforms.append("tiktok")
+                if AuthManager.is_authenticated(account, "instagram") or AuthManager.is_instagram_mobile_authenticated(account):
+                    target_platforms.append("instagram")
+                if AuthManager.is_authenticated(account, "facebook"):
+                    target_platforms.append("facebook")
             if not target_platforms:
                 target_platforms = ["tiktok"]
         else:
             target_platforms = [p.strip().lower() for p in platform_filter.split(",")]
+
+        # Filter platform yang SUDAH berhasil diupload sebelumnya (mencegah duplikasi postingan saat retry/jadwal)
+        already_uploaded = item.get("uploaded_platforms", [])
+        if platform_filter == "all" and already_uploaded:
+            pending_targets = [p for p in target_platforms if p not in already_uploaded]
+            if pending_targets:
+                target_platforms = pending_targets
+            else:
+                console.print(f"[bold green]Konten '{item['name']}' sudah terbit di semua platform target ({', '.join(already_uploaded).upper()}). Melewati upload.[/bold green]")
+                if session_id:
+                    first_p = target_platforms[0] if target_platforms else "system"
+                    PublishTracker.update_step(
+                        session_id,
+                        first_p,
+                        "Semua Platform Sudah Terbit",
+                        100,
+                        f"Konten '{item['name']}' telah berhasil diupload ke seluruh target sebelumnya.",
+                        "success",
+                        is_completed=True
+                    )
+                return True
 
         # Inisialisasi tracker sesi jika session_id tersedia
         if session_id:
@@ -643,6 +669,40 @@ class ContentManager:
             f"[dim]Platform Target: {', '.join(target_platforms).upper()}[/dim]"
         ))
 
+        def run_upload_with_retry(platform_name: str, upload_fn, max_attempts: int = 2) -> Tuple[bool, str, Optional[str]]:
+            last_msg = ""
+            last_proof = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        console.print(f"[bold yellow][{platform_name.upper()} RETRY][/bold yellow] Mencoba kembali upload (Percobaan {attempt}/{max_attempts})...")
+                        PublishTracker.log(session_id, platform_name, f"Percobaan {attempt - 1} gagal ({last_msg}). Mencoba kembali secara otomatis...", "warning")
+                        time.sleep(5)
+
+                    ok, msg, proof = upload_fn()
+                    if ok:
+                        return True, msg, proof
+                    last_msg = msg
+                    last_proof = proof
+                    console.print(f"[bold yellow][{platform_name.upper()}][/bold yellow] Percobaan {attempt} gagal: {msg}")
+
+                    # JANGAN RETRY jika error disebabkan sesi kadaluarsa / belum login / browser ditutup user
+                    lower_msg = str(msg).lower()
+                    unretryable = [
+                        "kadaluarsa", "expired", "silakan login", "belum login", "login ulang",
+                        "closed", "target page, context or browser has been closed", "aborted"
+                    ]
+                    if any(term in lower_msg for term in unretryable):
+                        console.print(f"[bold red][{platform_name.upper()}][/bold red] Sesi tidak valid atau browser ditutup ({msg}). Menghentikan percobaan ulang platform ini.")
+                        break
+                except Exception as ex:
+                    last_msg = str(ex)
+                    console.print(f"[bold red][{platform_name.upper()} Error][/bold red] Exception pada percobaan {attempt}: {ex}")
+                    lower_ex = str(ex).lower()
+                    if any(term in lower_ex for term in ["closed", "aborted"]):
+                        break
+            return False, last_msg, last_proof
+
         success = True
 
         # 1. KATEGORI VIDEO (TikTok Studio, IG Reels, Facebook Reels)
@@ -651,50 +711,61 @@ class ContentManager:
 
             if "tiktok" in target_platforms:
                 uploader = TikTokUploader(headless=headless)
-                ok, msg, proof = uploader.upload(
-                    video_path=video_path,
-                    caption=tt_caption,
-                    as_draft=meta.get("as_draft", False),
-                    account_name=account,
-                    sound_mode=meta.get("sound_mode", "favorite"),
-                    tiktok_sound_query=meta.get("sound_query", ""),
-                    sound_volume_db=meta.get("sound_db", "-7"),
-                    tiktok_product=meta.get("tiktok_product"),
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "tiktok",
+                    lambda: uploader.upload(
+                        video_path=video_path,
+                        caption=tt_caption,
+                        as_draft=meta.get("as_draft", False),
+                        account_name=account,
+                        sound_mode=meta.get("sound_mode", "favorite"),
+                        tiktok_sound_query=meta.get("sound_query", ""),
+                        sound_volume_db=meta.get("sound_db", "-7"),
+                        tiktok_product=meta.get("tiktok_product"),
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "instagram" in target_platforms:
                 uploader = InstagramUploader(headless=headless)
-                ok, msg, proof = uploader.upload(
-                    video_path=video_path,
-                    caption=ig_caption,
-                    as_reel=True,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "instagram",
+                    lambda: uploader.upload(
+                        video_path=video_path,
+                        caption=ig_caption,
+                        as_reel=True,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "facebook" in target_platforms:
-                from src.facebook_uploader import FacebookUploader
                 uploader = FacebookUploader(headless=headless)
-                ok, msg, proof = uploader.upload(
-                    video_path=video_path,
-                    caption=fb_caption,
-                    as_reel=True,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "facebook",
+                    lambda: uploader.upload(
+                        video_path=video_path,
+                        caption=fb_caption,
+                        as_reel=True,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
+                time.sleep(3)
 
         # 2. KATEGORI POSTER (TikTok Studio, IG Direct, Facebook Fanspage)
         elif category == "Poster":
@@ -702,51 +773,62 @@ class ContentManager:
 
             if "tiktok" in target_platforms:
                 uploader = TikTokUploader(headless=headless)
-                ok, msg, proof = uploader.upload_photos(
-                    photo_paths=[img_path],
-                    caption=tt_caption,
-                    title="",
-                    as_draft=meta.get("as_draft", False),
-                    account_name=account,
-                    sound_mode=meta.get("sound_mode", "favorite"),
-                    tiktok_sound_query=meta.get("sound_query", ""),
-                    category_label="Poster",
-                    session_id=session_id,
-                    tiktok_product=meta.get("tiktok_product")
+                ok, msg, proof = run_upload_with_retry(
+                    "tiktok",
+                    lambda: uploader.upload_photos(
+                        photo_paths=[img_path],
+                        caption=tt_caption,
+                        title="",
+                        as_draft=meta.get("as_draft", False),
+                        account_name=account,
+                        sound_mode=meta.get("sound_mode", "favorite"),
+                        tiktok_sound_query=meta.get("sound_query", ""),
+                        category_label="Poster",
+                        session_id=session_id,
+                        tiktok_product=meta.get("tiktok_product")
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "instagram" in target_platforms:
                 uploader = InstagramUploader(headless=headless)
-                ok, msg, proof = uploader.upload_media(
-                    media_paths=[img_path],
-                    caption=ig_caption,
-                    is_reel=False,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "instagram",
+                    lambda: uploader.upload_media(
+                        media_paths=[img_path],
+                        caption=ig_caption,
+                        is_reel=False,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "facebook" in target_platforms:
-                from src.facebook_uploader import FacebookUploader
                 uploader = FacebookUploader(headless=headless)
-                ok, msg, proof = uploader.upload_media(
-                    media_paths=[img_path],
-                    caption=fb_caption,
-                    is_reel=False,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "facebook",
+                    lambda: uploader.upload_media(
+                        media_paths=[img_path],
+                        caption=fb_caption,
+                        is_reel=False,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
+                time.sleep(3)
 
         # 3. KATEGORI CAROUSEL (TikTok Studio, IG Direct, Facebook Fanspage)
         elif category == "Carousel":
@@ -754,51 +836,62 @@ class ContentManager:
 
             if "tiktok" in target_platforms and slides:
                 uploader = TikTokUploader(headless=headless)
-                ok, msg, proof = uploader.upload_photos(
-                    photo_paths=slides,
-                    caption=tt_caption,
-                    title="",
-                    as_draft=meta.get("as_draft", False),
-                    account_name=account,
-                    sound_mode=meta.get("sound_mode", "favorite"),
-                    tiktok_sound_query=meta.get("sound_query", ""),
-                    category_label="Carousel",
-                    session_id=session_id,
-                    tiktok_product=meta.get("tiktok_product")
+                ok, msg, proof = run_upload_with_retry(
+                    "tiktok",
+                    lambda: uploader.upload_photos(
+                        photo_paths=slides,
+                        caption=tt_caption,
+                        title="",
+                        as_draft=meta.get("as_draft", False),
+                        account_name=account,
+                        sound_mode=meta.get("sound_mode", "favorite"),
+                        tiktok_sound_query=meta.get("sound_query", ""),
+                        category_label="Carousel",
+                        session_id=session_id,
+                        tiktok_product=meta.get("tiktok_product")
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "tiktok", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "instagram" in target_platforms and slides:
                 uploader = InstagramUploader(headless=headless)
-                ok, msg, proof = uploader.upload_media(
-                    media_paths=slides,
-                    caption=ig_caption,
-                    is_reel=False,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "instagram",
+                    lambda: uploader.upload_media(
+                        media_paths=slides,
+                        caption=ig_caption,
+                        is_reel=False,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "instagram", proof)
                 else:
                     success = False
+                time.sleep(3)
 
             if "facebook" in target_platforms and slides:
-                from src.facebook_uploader import FacebookUploader
                 uploader = FacebookUploader(headless=headless)
-                ok, msg, proof = uploader.upload_media(
-                    media_paths=slides,
-                    caption=fb_caption,
-                    is_reel=False,
-                    account_name=account,
-                    session_id=session_id
+                ok, msg, proof = run_upload_with_retry(
+                    "facebook",
+                    lambda: uploader.upload_media(
+                        media_paths=slides,
+                        caption=fb_caption,
+                        is_reel=False,
+                        account_name=account,
+                        session_id=session_id
+                    )
                 )
                 if ok:
                     cls.mark_as_uploaded(account, item["item_key"], "facebook", proof)
                 else:
                     success = False
+                time.sleep(3)
 
         return success
 

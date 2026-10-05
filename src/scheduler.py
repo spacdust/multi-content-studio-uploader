@@ -31,6 +31,8 @@ class AutoScheduler:
     _is_busy: bool = False
     _current_executing_item: Optional[Dict[str, Any]] = None
     _poll_interval: int = 20  # Poll every 20 seconds
+    _failed_attempts: Dict[str, int] = {}
+    _failed_cooldown: Dict[str, float] = {}
 
     @classmethod
     def parse_scheduled_datetime(cls, sched_str: str) -> Optional[datetime]:
@@ -60,6 +62,7 @@ class AutoScheduler:
         scheduled_list = []
         accounts = AccountManager.list_accounts()
         now = datetime.now()
+        now_ts = time.time()
 
         for acc in accounts:
             acc_name = acc.get("name")
@@ -68,26 +71,51 @@ class AutoScheduler:
 
             items = ContentManager.scan_content(acc_name)
             for item in items:
-                uploaded = item.get("uploaded_platforms", [])
-                # If already uploaded to any or all platforms, skip
-                if uploaded and len(uploaded) > 0:
-                    continue
-
                 meta = item.get("meta", {})
                 sched_time_str = meta.get("scheduled_time")
                 if not sched_time_str:
+                    continue
+
+                uploaded = item.get("uploaded_platforms", [])
+                
+                # Periksa platform target yang aktif untuk konten ini
+                configured_platforms = meta.get("platforms")
+                if configured_platforms and isinstance(configured_platforms, list):
+                    item_targets = [p.lower() for p in configured_platforms if AuthManager.is_authenticated(acc_name, p)]
+                else:
+                    item_targets = []
+                    if AuthManager.is_authenticated(acc_name, "tiktok"):
+                        item_targets.append("tiktok")
+                    if AuthManager.is_authenticated(acc_name, "instagram") or AuthManager.is_instagram_mobile_authenticated(acc_name):
+                        item_targets.append("instagram")
+                    if AuthManager.is_authenticated(acc_name, "facebook"):
+                        item_targets.append("facebook")
+
+                if not item_targets:
+                    item_targets = ["tiktok"]
+
+                # HANYA lewati jika SEMUA platform target sudah berhasil diupload!
+                remaining_platforms = [p for p in item_targets if p not in uploaded]
+                if not remaining_platforms:
                     continue
 
                 sched_dt = cls.parse_scheduled_datetime(sched_time_str)
                 if not sched_dt:
                     continue
 
+                item_key = item.get("item_key")
                 diff_seconds = (sched_dt - now).total_seconds()
-                is_due = diff_seconds <= 0
+
+                # Abaikan jadwal lampau yang sudah lewat lebih dari 24 jam (stale / expired)
+                if diff_seconds < -86400:
+                    continue
+
+                in_cooldown = now_ts < cls._failed_cooldown.get(item_key, 0)
+                is_due = (0 >= diff_seconds >= -86400) and not in_cooldown
 
                 scheduled_list.append({
                     "account": acc_name,
-                    "item_key": item.get("item_key"),
+                    "item_key": item_key,
                     "item_name": item.get("name"),
                     "category": item.get("category"),
                     "date": item.get("date"),
@@ -95,6 +123,9 @@ class AutoScheduler:
                     "scheduled_dt": sched_dt,
                     "diff_seconds": diff_seconds,
                     "is_due": is_due,
+                    "is_expired": False,
+                    "in_cooldown": in_cooldown,
+                    "remaining_platforms": remaining_platforms,
                     "item_data": item
                 })
 
@@ -113,7 +144,14 @@ class AutoScheduler:
                 return
 
             scheduled_items = cls.get_scheduled_items()
-            due_items = [i for i in scheduled_items if i["is_due"]]
+            now_ts = time.time()
+            due_items = [
+                i for i in scheduled_items 
+                if i["is_due"] 
+                and not i.get("is_expired") 
+                and now_ts >= cls._failed_cooldown.get(i["item_key"], 0)
+                and i["item_key"] not in cls._executing_keys
+            ]
             if not due_items:
                 return
 
@@ -124,16 +162,18 @@ class AutoScheduler:
             item_name = target["item_name"]
             item = target["item_data"]
 
-            if item_key in cls._executing_keys:
-                return
-
             cls._is_busy = True
             cls._executing_keys.add(item_key)
             cls._current_executing_item = target
 
         def runner(target_item=item, target_key=item_key, target_acc=account, target_name=item_name):
             session_id = f"sched_{int(time.time())}_{target_name[:8]}"
+            ok = False
             try:
+                # Refresh data item dari disk agar memiliki status uploaded_platforms terbaru
+                fresh_items = ContentManager.scan_content(target_acc)
+                target_item = next((it for it in fresh_items if it["item_key"] == target_key), target_item)
+
                 console.print(f"[bold cyan][Auto-Scheduler][/bold cyan] [Jadwal] Waktu tayang tercapai untuk '{target_name}' ({target_acc})! Memulai proses publikasi otomatis...")
                 PublishTracker.log(session_id, "sys", f"[Auto-Scheduler] Waktu tayang ({target_item.get('meta', {}).get('scheduled_time')}) tercapai. Menjalankan pipeline upload otomatis...", "info")
                 
@@ -149,11 +189,29 @@ class AutoScheduler:
                     console.print(f"[bold yellow][Auto-Scheduler][/bold yellow] [!] Publikasi terjadwal '{target_name}' selesai dengan beberapa kendala.")
             except Exception as ex:
                 console.print(f"[bold red][Auto-Scheduler Error][/bold red] Gagal mempublikasikan '{target_name}': {ex}")
+                ok = False
             finally:
                 with cls._lock:
                     cls._executing_keys.discard(target_key)
                     cls._is_busy = False
                     cls._current_executing_item = None
+
+                    if not ok:
+                        attempts = cls._failed_attempts.get(target_key, 0) + 1
+                        cls._failed_attempts[target_key] = attempts
+                        if attempts >= 3:
+                            # 3x gagal: hentikan auto-scheduler untuk item ini (cooldown 24 jam)
+                            cls._failed_cooldown[target_key] = time.time() + 86400
+                            console.print(f"[bold red][Auto-Scheduler][/bold red] Konten '{target_name}' telah gagal {attempts} kali. Jadwal otomatis dinonaktifkan sementara untuk item ini.")
+                            PublishTracker.log(session_id, "sys", f"[Auto-Scheduler] Konten '{target_name}' telah gagal {attempts} kali. Auto-retry dihentikan.", "error")
+                        else:
+                            # Cooldown 15 menit sebelum mencoba lagi
+                            cls._failed_cooldown[target_key] = time.time() + 900
+                            console.print(f"[bold yellow][Auto-Scheduler][/bold yellow] Konten '{target_name}' gagal (percobaan {attempts}/3). Cooldown 15 menit diaktifkan.")
+                            PublishTracker.log(session_id, "sys", f"[Auto-Scheduler] Konten '{target_name}' gagal (percobaan {attempts}/3). Cooldown 15 menit diaktifkan.", "warning")
+                    else:
+                        cls._failed_attempts.pop(target_key, None)
+                        cls._failed_cooldown.pop(target_key, None)
 
                 # Estafet: Cek segera apakah ada postingan akun lain yang menunggu antrean akibat bentrok
                 time.sleep(1.5)

@@ -222,6 +222,8 @@ class InstagramUploader:
                 if "accounts/login" in page.url:
                     page.screenshot(path=screenshot_path)
                     browser.close()
+                    from src.auth_manager import AuthManager
+                    AuthManager.invalidate_session(account_name, "instagram")
                     err_msg = f"Session Instagram untuk '{account_name}' telah kadaluarsa."
                     PublishTracker.update_step(session_id, "instagram", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                     return False, err_msg, screenshot_path
@@ -376,14 +378,154 @@ class InstagramUploader:
                     PublishTracker.update_step(session_id, "instagram", "Tombol Share Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                     return False, err_msg, screenshot_path
 
-                # Wait success
-                PublishTracker.update_step(session_id, "instagram", "Menunggu konfirmasi terbit...", 95, "Menunggu konfirmasi Instagram (Reel/Post shared)...", "step")
-                for _ in range(35):
-                    page.wait_for_timeout(2000)
-                    c = page.content().lower()
-                    if "your reel has been shared" in c or "your post has been shared" in c or "telah dibagikan" in c or "post shared" in c:
+                # Beri jeda sejenak untuk memastikan event klik diproses
+                page.wait_for_timeout(2000)
+                try:
+                    c_initial = page.content().lower()
+                    if "sharing" not in c_initial and "membagikan" not in c_initial:
+                        if share_btn.count() > 0 and share_btn.is_visible():
+                            share_btn.click(force=True)
+                            page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+
+                # Tunggu konfirmasi keberhasilan upload secara komprehensif
+                is_video = is_reel or any(f.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm')) for f in resolved_files)
+                # Video/Reels membutuhkan waktu upload chunk dan transcode server yang jauh lebih lama
+                max_wait_seconds = 300 if is_video else 120
+                poll_interval = 2
+                max_iterations = max_wait_seconds // poll_interval
+
+                upload_success = False
+                upload_error = None
+                sharing_detected = False
+
+                console.print(f"[cyan][Instagram] Menunggu konfirmasi upload & pemrosesan (maksimal {max_wait_seconds}s)...[/cyan]")
+                PublishTracker.update_step(
+                    session_id,
+                    "instagram",
+                    "Menunggu konfirmasi terbit...",
+                    88,
+                    f"Menunggu konfirmasi Instagram (Reel/Post shared, batas waktu {max_wait_seconds}s)...",
+                    "step"
+                )
+
+                success_keywords = [
+                    "your reel has been shared",
+                    "your post has been shared",
+                    "reel anda telah dibagikan",
+                    "postingan anda telah dibagikan",
+                    "has been shared",
+                    "telah dibagikan",
+                    "post shared",
+                    "reel shared",
+                    "view post",
+                    "lihat postingan"
+                ]
+
+                failure_keywords = [
+                    "your reel couldn't be shared",
+                    "reel anda tidak dapat dibagikan",
+                    "your post couldn't be shared",
+                    "postingan anda tidak dapat dibagikan",
+                    "couldn't share",
+                    "couldn't be shared",
+                    "tidak dapat dibagikan",
+                    "couldn't post",
+                    "tidak dapat memposting",
+                    "something went wrong",
+                    "terjadi kesalahan",
+                    "coba lagi nanti",
+                    "please try again"
+                ]
+
+                for i in range(1, max_iterations + 1):
+                    page.wait_for_timeout(poll_interval * 1000)
+                    elapsed = i * poll_interval
+
+                    try:
+                        content_lower = page.content().lower()
+                    except Exception:
+                        content_lower = ""
+
+                    dialog_loc = page.locator("div[role='dialog']")
+                    dialog_count = dialog_loc.count()
+                    dialog_text = ""
+                    if dialog_count > 0:
+                        try:
+                            dialog_text = dialog_loc.first.inner_text().lower()
+                        except Exception:
+                            pass
+
+                    # 1. Cek pesan error/gagal eksplisit
+                    if any(fk in dialog_text for fk in failure_keywords) or (dialog_count > 0 and any(fk in content_lower for fk in failure_keywords)):
+                        console.print(f"[bold red][Instagram] Pesan kesalahan terdeteksi: {dialog_text[:200]}[/bold red]")
+                        upload_error = f"Instagram gagal mempublikasikan: {dialog_text.strip()[:180] or 'Terjadi kesalahan saat membagikan.'}"
                         break
 
+                    # 2. Cek indikator sukses eksplisit
+                    if any(sk in content_lower for sk in success_keywords) or any(sk in dialog_text for sk in success_keywords):
+                        console.print(f"[bold green][Instagram] Konfirmasi berhasil terbit terdeteksi pada detik ke-{elapsed}![/bold green]")
+                        upload_success = True
+                        break
+
+                    # 3. Pantau apakah status masih 'Sharing' / 'Membagikan'
+                    is_sharing_now = (
+                        "sharing" in content_lower or
+                        "membagikan" in content_lower or
+                        "sharing" in dialog_text or
+                        "membagikan" in dialog_text or
+                        (dialog_count > 0 and dialog_loc.locator("svg[aria-label*='Loading' i], svg[aria-label*='Memuat' i]").count() > 0)
+                    )
+
+                    if is_sharing_now:
+                        sharing_detected = True
+                        calc_progress = min(98, 88 + int((elapsed / max_wait_seconds) * 10))
+                        if elapsed % 6 == 0 or elapsed <= 10:
+                            console.print(f"[cyan][Instagram] Masih memproses/mengunggah media (detik ke-{elapsed})...[/cyan]")
+                            PublishTracker.update_step(
+                                session_id,
+                                "instagram",
+                                f"Mengunggah & memproses media ({elapsed}s)...",
+                                calc_progress,
+                                f"Media sedang diunggah dan diproses oleh server Instagram ({elapsed}s / maks {max_wait_seconds}s). Mohon jangan tutup browser...",
+                                "step"
+                            )
+                        continue
+
+                    # 4. Jika sebelumnya terdeteksi 'Sharing' dan sekarang modal dialog sudah tertutup sepenuhnya,
+                    # artinya postingan telah selesai diproses dan dikirim ke feed
+                    if sharing_detected and dialog_count == 0:
+                        page.wait_for_timeout(3000)
+                        if page.locator("div[role='dialog']").count() == 0 and "instagram.com" in page.url:
+                            console.print(f"[bold green][Instagram] Modal posting telah tertutup dan kembali ke feed (sukses pada detik ke-{elapsed})![/bold green]")
+                            upload_success = True
+                            break
+
+                if not upload_success:
+                    page.screenshot(path=screenshot_path)
+                    browser.close()
+                    if upload_error:
+                        final_err = upload_error
+                    elif sharing_detected:
+                        final_err = f"Upload Instagram timeout setelah {max_wait_seconds} detik. Server Instagram masih dalam status 'Sharing' saat batas waktu habis. Koneksi internet mungkin lambat atau server Instagram sedang padat."
+                    else:
+                        final_err = f"Upload Instagram tidak menerima konfirmasi berhasil dalam batas waktu ({max_wait_seconds} detik)."
+
+                    console.print(f"[bold red][Instagram] Gagal: {final_err}[/bold red]")
+                    PublishTracker.update_step(
+                        session_id,
+                        "instagram",
+                        "Upload Gagal / Timeout",
+                        0,
+                        final_err,
+                        "error",
+                        is_failed=True,
+                        error_msg=final_err
+                    )
+                    return False, final_err, screenshot_path
+
+                # Sukses terbit: tunggu sebentar agar tampilan stabil, simpan session & screenshot bukti
                 page.wait_for_timeout(2000)
                 try:
                     context.storage_state(path=str(state_file))
@@ -391,7 +533,16 @@ class InstagramUploader:
                     pass
                 page.screenshot(path=screenshot_path)
                 browser.close()
-                PublishTracker.update_step(session_id, "instagram", "Instagram Berhasil Terbit!", 100, f"Postingan Instagram untuk akun '{account_name}' berhasil dipublikasikan!", "success", is_completed=True, post_url=screenshot_path)
+                PublishTracker.update_step(
+                    session_id,
+                    "instagram",
+                    "Instagram Berhasil Terbit!",
+                    100,
+                    f"Postingan Instagram untuk akun '{account_name}' berhasil dipublikasikan!",
+                    "success",
+                    is_completed=True,
+                    post_url=screenshot_path
+                )
                 return True, f"{category_name} berhasil diupload via Web Browser.", screenshot_path
 
             except Exception as ex:

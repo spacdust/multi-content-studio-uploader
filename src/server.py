@@ -125,6 +125,10 @@ class BatchClearScheduleRequest(BaseModel):
     account: str
     items: Optional[List[BatchScheduleItem]] = None
 
+class FetchModelsRequest(BaseModel):
+    llm_base_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+
 class SettingsRequest(BaseModel):
     llm_base_url: str
     llm_api_key: str
@@ -518,6 +522,76 @@ def open_facebook_studio(req: OpenStudioRequest):
         "message": f"Membuka Facebook Fanspage dengan sesi akun '{acc_name}' di jendela browser maximized..."
     }
 
+def fetch_available_models(base_url: str, api_key: str) -> List[str]:
+    """
+    Fetches available models from an OpenAI-compatible, Gemini, Ollama, or local proxy endpoint.
+    Uses OpenAI SDK first, falling back to direct HTTP GET /models.
+    """
+    models: List[str] = []
+    base_url = (base_url or "").strip()
+    api_key = (api_key or "").strip()
+    
+    if not base_url:
+        return []
+
+    # 1. Try OpenAI SDK
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=base_url, api_key=api_key or "sk-dummy", timeout=12.0)
+        res = client.models.list()
+        for m in res:
+            m_id = getattr(m, "id", None) or (m.get("id") if isinstance(m, dict) else None)
+            if m_id and str(m_id) not in models:
+                models.append(str(m_id))
+    except Exception:
+        pass
+
+    # 2. Direct HTTP fallback (requests)
+    if not models:
+        try:
+            import requests
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            
+            clean_base = base_url.rstrip("/")
+            candidate_urls = [
+                f"{clean_base}/models" if not clean_base.endswith("/models") else clean_base,
+                f"{clean_base}/api/tags",
+            ]
+
+            for test_url in candidate_urls:
+                try:
+                    resp = requests.get(test_url, headers=headers, timeout=8.0)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if isinstance(data, dict) and "data" in data and isinstance(data["data"], list):
+                            for item in data["data"]:
+                                mid = item.get("id") if isinstance(item, dict) else str(item)
+                                if mid and mid not in models:
+                                    models.append(mid)
+                        elif isinstance(data, dict) and "models" in data and isinstance(data["models"], list):
+                            for item in data["models"]:
+                                mid = item.get("name") or item.get("id") if isinstance(item, dict) else str(item)
+                                if mid:
+                                    if mid.startswith("models/"):
+                                        mid = mid[7:]
+                                    if mid not in models:
+                                        models.append(mid)
+                        elif isinstance(data, list):
+                            for item in data:
+                                mid = item.get("id") if isinstance(item, dict) else str(item)
+                                if mid and mid not in models:
+                                    models.append(mid)
+                        if models:
+                            break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    return sorted(list(dict.fromkeys(models)))
+
 @app.get("/api/settings")
 def get_settings():
     """Returns current LLM endpoint, API key, and model configurations."""
@@ -527,6 +601,52 @@ def get_settings():
         "llm_api_key": env.get("LLM_API_KEY", DEFAULT_LLM_API_KEY),
         "llm_model": env.get("LLM_MODEL", DEFAULT_LLM_MODEL)
     }
+
+@app.get("/api/settings/models")
+def get_available_models(base_url: Optional[str] = Query(None), api_key: Optional[str] = Query(None)):
+    """Fetches available models from the currently configured or provided LLM endpoint."""
+    env = read_current_env()
+    effective_base_url = (base_url or env.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)).strip()
+    effective_api_key = (api_key or env.get("LLM_API_KEY", DEFAULT_LLM_API_KEY)).strip()
+
+    try:
+        models = fetch_available_models(effective_base_url, effective_api_key)
+        return {
+            "status": "success",
+            "models": models,
+            "count": len(models),
+            "endpoint": effective_base_url
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "models": [],
+            "count": 0,
+            "message": str(e)
+        }
+
+@app.post("/api/settings/models")
+def post_fetch_models(req: FetchModelsRequest):
+    """Fetches available models given arbitrary base_url and api_key in POST payload."""
+    env = read_current_env()
+    effective_base_url = (req.llm_base_url or env.get("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)).strip()
+    effective_api_key = (req.llm_api_key or env.get("LLM_API_KEY", DEFAULT_LLM_API_KEY)).strip()
+
+    try:
+        models = fetch_available_models(effective_base_url, effective_api_key)
+        return {
+            "status": "success",
+            "models": models,
+            "count": len(models),
+            "endpoint": effective_base_url
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "models": [],
+            "count": 0,
+            "message": str(e)
+        }
 
 @app.post("/api/settings")
 def save_settings(req: SettingsRequest):
@@ -540,28 +660,33 @@ def save_settings(req: SettingsRequest):
     return {"status": "success", "message": "Pengaturan LLM berhasil disimpan!"}
 
 @app.post("/api/settings/test")
+@app.post("/api/settings/test-llm")
 def test_llm_settings(req: SettingsRequest):
     """Tests connection to the specified LLM endpoint."""
     t0 = time.time()
     try:
         from openai import OpenAI
-        client = OpenAI(base_url=req.llm_base_url.strip(), api_key=req.llm_api_key.strip())
+        client = OpenAI(base_url=req.llm_base_url.strip(), api_key=req.llm_api_key.strip(), timeout=12.0)
         res = client.chat.completions.create(
             model=req.llm_model.strip(),
             messages=[{"role": "user", "content": "Halo, ini tes koneksi singkat. Balas dengan 1 kata: OK"}],
             max_tokens=10,
-            timeout=10
+            timeout=12
         )
         latency = round((time.time() - t0) * 1000)
-        reply = res.choices[0].message.content.strip()
+        reply = res.choices[0].message.content.strip() if res.choices and res.choices[0].message else "OK"
         return {
             "status": "success",
-            "message": f"Koneksi berhasil! Latensi: {latency}ms. Respon: '{reply}'"
+            "message": f"Koneksi berhasil! Latensi: {latency}ms.",
+            "latency": latency,
+            "model": req.llm_model.strip(),
+            "reply": reply
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": f"Koneksi gagal: {str(e)}"
+            "message": f"Koneksi gagal: {str(e)}",
+            "model": req.llm_model.strip()
         }
 
 @app.get("/api/scheduler/status")

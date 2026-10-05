@@ -71,5 +71,11 @@ class TestPublishTracker(unittest.TestCase):
         self.assertEqual(completed_session["status"], "completed")
         self.assertEqual(completed_session["percent"], 100)
 
+    def tearDown(self):
+        from src.config import LOGS_DIR
+        session_file = LOGS_DIR / "sessions" / f"{self.session_id}.json"
+        if session_file.exists():
+            session_file.unlink(missing_ok=True)
+
 if __name__ == "__main__":
     unittest.main()

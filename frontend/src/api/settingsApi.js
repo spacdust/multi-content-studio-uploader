@@ -22,3 +22,12 @@ export async function testLlmApi(payload) {
   });
   return await res.json();
 }
+
+export async function fetchAvailableModelsApi(payload = {}) {
+  const res = await fetch('/api/settings/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return await res.json();
+}

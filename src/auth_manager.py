@@ -64,6 +64,17 @@ class AuthManager:
         except Exception:
             return False
 
+    @classmethod
+    def invalidate_session(cls, account_name: str, platform: str):
+        """Invalidates and removes a session file when reported expired by the platform."""
+        try:
+            state_file = get_account_state_file(account_name, platform)
+            if state_file.exists():
+                state_file.unlink(missing_ok=True)
+                console.print(f"[bold yellow][AuthManager][/bold yellow] Sesi {platform.upper()} untuk '{account_name}' telah dihapus karena kadaluarsa.")
+        except Exception as ex:
+            console.print(f"[dim yellow][AuthManager Warning] Gagal menghapus sesi kadaluarsa {platform}: {ex}[/dim yellow]")
+
     @staticmethod
     def is_tiktok_authenticated(account_name: str = "default") -> bool:
         state_file = get_account_state_file(account_name, "tiktok")
@@ -72,8 +83,11 @@ class AuthManager:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cookies = data.get("cookies", [])
+                    now = time.time()
                     return any(
-                        c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"] and len(c.get("value", "")) > 5
+                        c.get("name") in ["sessionid", "sessionid_ss", "sid_tt"]
+                        and len(c.get("value", "")) > 5
+                        and (c.get("expires", -1) == -1 or c.get("expires", 0) > now)
                         for c in cookies
                     )
             except Exception:
@@ -88,7 +102,13 @@ class AuthManager:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cookies = data.get("cookies", [])
-                    return any(c.get("name") in ["sessionid", "ds_user_id"] for c in cookies)
+                    now = time.time()
+                    return any(
+                        c.get("name") in ["sessionid", "ds_user_id"]
+                        and len(c.get("value", "")) > 3
+                        and (c.get("expires", -1) == -1 or c.get("expires", 0) > now)
+                        for c in cookies
+                    )
             except Exception:
                 pass
         return False
@@ -101,7 +121,13 @@ class AuthManager:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cookies = data.get("cookies", [])
-                    return any(c.get("name") in ["c_user", "xs"] for c in cookies)
+                    now = time.time()
+                    return any(
+                        c.get("name") in ["c_user", "xs"]
+                        and len(c.get("value", "")) > 3
+                        and (c.get("expires", -1) == -1 or c.get("expires", 0) > now)
+                        for c in cookies
+                    )
             except Exception:
                 pass
         return False
@@ -114,8 +140,14 @@ class AuthManager:
                 with open(state_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     cookies = data.get("cookies", [])
+                    now = time.time()
                     # c_user, xs for Facebook; sessionid, ds_user_id for Instagram in Meta Suite
-                    return any(c.get("name") in ["c_user", "xs", "sessionid", "ds_user_id"] for c in cookies)
+                    return any(
+                        c.get("name") in ["c_user", "xs", "sessionid", "ds_user_id"]
+                        and len(c.get("value", "")) > 3
+                        and (c.get("expires", -1) == -1 or c.get("expires", 0) > now)
+                        for c in cookies
+                    )
             except Exception:
                 pass
         return False

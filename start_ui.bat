@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Content Uploader Studio Dashboard
+title Content Uploader Studio
 cls
 echo ====================================================================
-echo             MEMULAI CONTENT UPLOADER STUDIO DASHBOARD
+echo                 MEMULAI CONTENT UPLOADER STUDIO
 echo ====================================================================
 echo.
 echo [1/2] Membuka server FastAPI di http://127.0.0.1:8000 ...

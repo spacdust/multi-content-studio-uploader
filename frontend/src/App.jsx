@@ -181,6 +181,11 @@ export default function App() {
         setLlmApiKey={settingsState.setLlmApiKey}
         llmModel={settingsState.llmModel}
         setLlmModel={settingsState.setLlmModel}
+        availableModels={settingsState.availableModels}
+        loadingModels={settingsState.loadingModels}
+        detectModels={settingsState.detectModels}
+        isCustomModel={settingsState.isCustomModel}
+        setIsCustomModel={settingsState.setIsCustomModel}
         savingSettings={settingsState.savingSettings}
         testingLlm={settingsState.testingLlm}
         testResult={settingsState.testResult}

@@ -38,7 +38,11 @@ class FacebookUploader:
             "div[aria-label='Tutup']",
             "button:has-text('Not Now')",
             "button:has-text('Lain Kali')",
-            "button:has-text('OK')"
+            "button:has-text('OK')",
+            "div[role='button']:has-text('Continue')",
+            "div[role='button']:has-text('Lanjutkan')",
+            "button:has-text('Continue')",
+            "button:has-text('Lanjutkan')"
         ]:
             try:
                 b = page.locator(sel).first
@@ -156,12 +160,14 @@ class FacebookUploader:
                     if "login" in page.url:
                         page.screenshot(path=screenshot_path)
                         browser.close()
+                        from src.auth_manager import AuthManager
+                        AuthManager.invalidate_session(account_name, "facebook")
                         return False, f"Session Facebook untuk '{account_name}' telah kadaluarsa.", screenshot_path
 
                     self.dismiss_popups(page)
 
-                    # 2. Tekan ikon MERAH Reel di sebelah kanan 'Apa yang Anda pikirkan'
-                    console.print("[cyan]2. Membuka dialog pembuatan Reel (ikon merah paling kanan)...[/cyan]")
+                    # 2. Tekan tombol/ikon Reel atau arahkan langsung ke /reel/create
+                    console.print("[cyan]2. Membuka composer Reel Facebook...[/cyan]")
                     photo_video_btn = page.locator(
                         "div[aria-label='Reel'], "
                         "div[aria-label='Buat Reel'], "
@@ -170,20 +176,38 @@ class FacebookUploader:
                     ).first
 
                     if photo_video_btn.count() == 0:
-                        photo_video_btn = page.locator("div[role='main'] div[aria-label='Reel']").first
+                        photo_video_btn = page.locator("div[role='main'] div[aria-label='Reel'], div[role='main'] div:has-text('Reels')").first
 
-                    if photo_video_btn.count() > 0:
+                    if photo_video_btn.count() > 0 and photo_video_btn.is_visible():
                         photo_video_btn.click(force=True)
-                        page.wait_for_timeout(2500)
+                        page.wait_for_timeout(3000)
+                    else:
+                        console.print("[cyan]Mengarahkan langsung ke Facebook Reel Creator (https://www.facebook.com/reel/create)...[/cyan]")
+                        try:
+                            page.goto("https://www.facebook.com/reel/create", timeout=30000, wait_until="domcontentloaded")
+                            page.wait_for_timeout(4000)
+                            self.dismiss_popups(page)
+                        except Exception:
+                            pass
 
                     # 3. Upload Video
                     console.print("[cyan]3. Menyuntikkan file video...[/cyan]")
                     PublishTracker.update_step(session_id, "facebook", "Mengunggah video ke Facebook...", 40, f"Mengunggah file video {Path(resolved_files[0]).name} ke Facebook Reel", "step")
-                    file_input = page.locator("div[role='dialog'] input[type='file']").first
-                    if file_input.count() == 0:
-                        file_input = page.locator("input[type='file'][accept*='video'], input[type='file']").last
-                    if file_input.count() == 0:
-                        file_input = page.locator("input[type='file']").first
+                    file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file'][accept*='video'], input[type='file']").first
+                    for _ in range(12):
+                        if file_input.count() > 0:
+                            break
+                        page.wait_for_timeout(1000)
+                        file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file'][accept*='video'], input[type='file']").first
+
+                    if file_input.count() == 0 and "reel/create" not in page.url:
+                        console.print("[cyan]Input file belum muncul, mencoba navigasi langsung ke /reel/create...[/cyan]")
+                        try:
+                            page.goto("https://www.facebook.com/reel/create", timeout=30000, wait_until="domcontentloaded")
+                            page.wait_for_timeout(4000)
+                            file_input = page.locator("input[type='file']").first
+                        except Exception:
+                            pass
 
                     if file_input.count() == 0:
                         page.screenshot(path=screenshot_path)
@@ -298,6 +322,8 @@ class FacebookUploader:
                     if "login" in page.url:
                         page.screenshot(path=screenshot_path)
                         browser.close()
+                        from src.auth_manager import AuthManager
+                        AuthManager.invalidate_session(account_name, "facebook")
                         err_msg = f"Session Facebook untuk '{account_name}' telah kadaluarsa."
                         PublishTracker.update_step(session_id, "facebook", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
@@ -370,12 +396,32 @@ class FacebookUploader:
                         "div[role='button']:has-text('Kirim'), "
                         "div[role='button']:has-text('Posting')"
                     ).last
-                    if post_btn.count() > 0:
-                        post_btn.click(force=True)
-                    else:
+
+                    clicked_fb = False
+                    for _ in range(15):
+                        if post_btn.count() > 0 and post_btn.is_visible():
+                            try:
+                                post_btn.click(force=True)
+                                clicked_fb = True
+                                break
+                            except Exception:
+                                pass
+                        page.wait_for_timeout(1000)
+                        post_btn = page.locator(
+                            "div[role='dialog'] div[role='button']:has-text('Kirim'), "
+                            "div[role='dialog'] div[aria-label='Kirim'], "
+                            "div[role='dialog'] div[role='button']:has-text('Posting'), "
+                            "div[role='dialog'] div[aria-label='Posting'], "
+                            "div[role='dialog'] div[role='button']:has-text('Post'), "
+                            "div[role='dialog'] div[aria-label='Post'], "
+                            "div[role='button']:has-text('Kirim'), "
+                            "div[role='button']:has-text('Posting')"
+                        ).last
+
+                    if not clicked_fb:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        err_msg = "Tombol Posting Facebook tidak ditemukan."
+                        err_msg = "Tombol Posting Facebook tidak ditemukan atau belum aktif."
                         PublishTracker.update_step(session_id, "facebook", "Tombol Posting Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
 

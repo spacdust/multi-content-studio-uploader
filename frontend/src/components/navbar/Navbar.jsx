@@ -29,7 +29,7 @@ export default function Navbar({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold tracking-tight text-zinc-100">Content Studio</span>
+              <span className="text-sm font-semibold tracking-tight text-zinc-100">Content Uploader Studio</span>
               <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/50">
                 PRO
               </span>

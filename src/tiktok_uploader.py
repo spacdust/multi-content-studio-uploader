@@ -792,6 +792,8 @@ class TikTokUploader:
                 if "login" in page.url:
                     page.screenshot(path=screenshot_path)
                     browser.close()
+                    from src.auth_manager import AuthManager
+                    AuthManager.invalidate_session(account_name, "tiktok")
                     err_msg = f"Session TikTok untuk '{account_name}' telah kadaluarsa. Silakan login ulang."
                     PublishTracker.update_step(session_id, "tiktok", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                     return False, err_msg, screenshot_path
@@ -937,12 +939,13 @@ class TikTokUploader:
                 console.print("[cyan]Menunggu verifikasi upload & mengantisipasi popup konfirmasi...[/cyan]")
                 PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 92, "Menunggu konfirmasi penerbitan TikTok Studio & memeriksa popup...", "step")
 
-                max_wait_seconds = 45
+                max_wait_seconds = 120
                 poll_start = time.time()
                 is_published = False
 
                 while time.time() - poll_start < max_wait_seconds:
                     page.wait_for_timeout(1500)
+                    elapsed = int(time.time() - poll_start)
 
                     # A. Cek dan tangani dialog konfirmasi popup (misal 'Video sedang diproses' -> 'Tetap posting')
                     confirmed_popup = self.handle_post_confirmation_popups(page, session_id=session_id)
@@ -971,8 +974,7 @@ class TikTokUploader:
                         pass
 
                     # D. Jika tombol Post utama masih aktif di layar setelah 12 detik dan tidak ada popup, coba klik ulang
-                    elapsed = time.time() - poll_start
-                    if elapsed > 12 and not confirmed_popup:
+                    if elapsed > 12 and not confirmed_popup and elapsed % 15 == 0:
                         try:
                             post_btn_retry = page.locator("button.Button__root--type-primary, button:text-is('Post'), button:text-is('Posting')").first
                             if post_btn_retry.count() > 0 and post_btn_retry.is_visible():
@@ -984,9 +986,32 @@ class TikTokUploader:
                         except Exception:
                             pass
 
+                    # Update step timer
+                    calc_prog = min(98, 92 + int((elapsed / max_wait_seconds) * 6))
+                    PublishTracker.update_step(
+                        session_id,
+                        "tiktok",
+                        f"Memverifikasi upload TikTok ({elapsed}s)...",
+                        calc_prog,
+                        f"Menunggu verifikasi TikTok Studio ({elapsed}s / maks {max_wait_seconds}s)...",
+                        "step"
+                    )
+
                 if not is_published:
                     self.handle_post_confirmation_popups(page, session_id=session_id)
                     page.wait_for_timeout(2000)
+                    # Cek sekali lagi apakah redirect atau teks sukses sudah muncul
+                    current_url = page.url
+                    if "/tiktokstudio/content" in current_url or "/content" in current_url or "/manage" in current_url:
+                        is_published = True
+
+                if not is_published:
+                    page.screenshot(path=screenshot_path)
+                    browser.close()
+                    err_msg = f"Upload TikTok timeout setelah {max_wait_seconds} detik. Konfirmasi penerbitan belum diterima."
+                    console.print(f"[bold red][TikTok Gagal][/bold red] {err_msg}")
+                    PublishTracker.update_step(session_id, "tiktok", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 try:
                     self._save_storage_state_safe(context, state_file)
@@ -1442,6 +1467,8 @@ class TikTokUploader:
                 if "login" in page.url:
                     page.screenshot(path=screenshot_path)
                     browser.close()
+                    from src.auth_manager import AuthManager
+                    AuthManager.invalidate_session(account_name, "tiktok")
                     return False, f"Session TikTok untuk '{account_name}' telah kadaluarsa. Silakan login ulang.", screenshot_path
 
                 self.dismiss_popups(page)
@@ -1589,12 +1616,13 @@ class TikTokUploader:
                 console.print("[cyan]Menunggu verifikasi upload & mengantisipasi popup konfirmasi...[/cyan]")
                 PublishTracker.update_step(session_id, "tiktok", "Menunggu verifikasi upload...", 92, "Menunggu konfirmasi penerbitan TikTok Studio & memeriksa popup...", "step")
 
-                max_wait_seconds = 45
+                max_wait_seconds = 75
                 poll_start = time.time()
                 is_published = False
 
                 while time.time() - poll_start < max_wait_seconds:
                     page.wait_for_timeout(1500)
+                    elapsed = int(time.time() - poll_start)
 
                     # A. Cek popup konfirmasi
                     confirmed_popup = self.handle_post_confirmation_popups(page, session_id=session_id)
@@ -1622,9 +1650,30 @@ class TikTokUploader:
                     except Exception:
                         pass
 
+                    calc_prog = min(98, 92 + int((elapsed / max_wait_seconds) * 6))
+                    PublishTracker.update_step(
+                        session_id,
+                        "tiktok",
+                        f"Memverifikasi upload {category_label} ({elapsed}s)...",
+                        calc_prog,
+                        f"Menunggu verifikasi TikTok Studio ({elapsed}s / maks {max_wait_seconds}s)...",
+                        "step"
+                    )
+
                 if not is_published:
                     self.handle_post_confirmation_popups(page, session_id=session_id)
                     page.wait_for_timeout(2000)
+                    current_url = page.url
+                    if "/tiktokstudio/content" in current_url or "/content" in current_url or "/manage" in current_url:
+                        is_published = True
+
+                if not is_published:
+                    page.screenshot(path=screenshot_path)
+                    browser.close()
+                    err_msg = f"Upload TikTok {category_label} timeout setelah {max_wait_seconds} detik. Konfirmasi penerbitan belum diterima."
+                    console.print(f"[bold red][TikTok Gagal][/bold red] {err_msg}")
+                    PublishTracker.update_step(session_id, "tiktok", "Upload Gagal", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                    return False, err_msg, screenshot_path
 
                 try:
                     self._save_storage_state_safe(context, state_file)

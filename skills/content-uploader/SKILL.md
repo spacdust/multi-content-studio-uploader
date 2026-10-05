@@ -1,7 +1,7 @@
 ---
 name: content-uploader
-description: "Automated content uploader for TikTok and Instagram Reels/Posts using Playwright browser automation, intelligent sound/audio mixing, and queue management."
-version: 1.1.0
+description: "Automated content uploader for TikTok Studio, Instagram Web, and Facebook Fanspage using Playwright browser automation, intelligent sound/audio mixing, and queue management."
+version: 1.3.0
 author: Content Uploader Team
 license: MIT
 platforms: [windows, linux, macos]
@@ -9,12 +9,12 @@ prerequisites:
   commands: [python, ffmpeg]
 metadata:
   hermes:
-    tags: [social-media, tiktok, instagram, reels, video-upload, sound-mixing, audio-volume, queue-automation]
+    tags: [social-media, tiktok, instagram, facebook, reels, video-upload, sound-mixing, audio-volume, queue-automation]
 ---
 
-# Content Uploader — TikTok & Instagram Automation Skill
+# Content Uploader Studio — Tri-Platform Social Media Automation Skill
 
-This skill allows the agent to check social media login sessions, upload videos directly to TikTok and Instagram (Reels & Posts), adjust sound volume, add background music (BGM), manage the upload queue, and generate optimized captions and hashtags.
+This skill allows the agent to check social media login sessions, upload videos, posters, and carousels directly to TikTok, Instagram, and Facebook Fanspage, adjust sound volume, add background music (BGM), manage the upload queue, and generate AI-optimized captions and hashtags.
 
 **Root Workspace Directory:** `C:\Users\spacdust\Desktop\DEV\Bot\content-uploader`
 
