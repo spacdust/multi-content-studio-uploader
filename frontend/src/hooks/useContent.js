@@ -13,6 +13,7 @@ import {
   reorderQueueApi,
   batchScheduleContentApi,
   batchClearScheduleApi,
+  resetContentStatusApi,
 } from '../api/contentApi';
 import { getLocalNowIso, getLocalTodayDate } from '../utils/dateUtils';
 
@@ -53,6 +54,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   // Upload Modal State
   const [singleMediaFile, setSingleMediaFile] = useState(null);
   const [singleMediaPreviewUrl, setSingleMediaPreviewUrl] = useState(null);
+  const [selectedMediaFiles, setSelectedMediaFiles] = useState([]);
   const [carouselSlides, setCarouselSlides] = useState([]);
   const [isScheduledUpload, setIsScheduledUpload] = useState(false);
   const [uploadScheduleTime, setUploadScheduleTime] = useState(getLocalNowIso());
@@ -89,7 +91,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
               caption: item.caption || '',
               tiktokMentions: item.meta?.tiktok_mentions || '',
               instagramMentions: item.meta?.instagram_mentions || '',
-              soundMode: item.meta?.sound_mode || 'favorite',
+              soundMode: item.meta?.sound_mode || 'none',
               soundQuery: item.meta?.sound_query ?? '',
               soundDb: item.meta?.sound_db !== undefined && item.meta?.sound_db !== null && item.meta?.sound_db !== '' ? item.meta.sound_db : defaultDb,
               scheduledTime: item.meta?.scheduled_time || '',
@@ -109,6 +111,18 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         });
         return nextEdits;
       });
+
+      // Clear generating caption if the target item now has caption
+      if (generatingCaption) {
+        const finishedItem = fetchedItems.find(
+          (it) => it.item_key === generatingCaption && it.caption && it.caption.trim()
+        );
+        if (finishedItem) {
+          setGeneratingCaption(null);
+          showToast(`✨ Caption AI untuk '${finishedItem.name}' selesai dibuat!`, 'success');
+        }
+      }
+
       return fetchedItems;
     } catch {
       if (!isSilent) {
@@ -117,13 +131,46 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     } finally {
       setLoadingContent(false);
     }
-  }, [selectedAccount, showToast]);
+  }, [selectedAccount, generatingCaption, showToast]);
 
   useEffect(() => {
     if (selectedAccount) {
       fetchContent(selectedAccount);
     }
   }, [selectedAccount, fetchContent]);
+
+  // Background caption auto-sync: detects any items marked is_generating_caption
+  useEffect(() => {
+    const hasGeneratingItems = items.some((i) => i.is_generating_caption);
+    if (!hasGeneratingItems) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const freshData = await fetchContentApi(selectedAccount);
+        const freshItems = freshData.items || [];
+        setItems(freshItems);
+        itemsRef.current = freshItems;
+
+        const stillHas = freshItems.some((i) => i.is_generating_caption);
+        if (!stillHas) {
+          clearInterval(interval);
+          setEditedItems((prev) => {
+            const next = { ...prev };
+            freshItems.forEach((it) => {
+              if (it.caption && (!next[it.item_key] || !next[it.item_key].caption)) {
+                next[it.item_key] = { ...(next[it.item_key] || {}), caption: it.caption };
+              }
+            });
+            return next;
+          });
+        }
+      } catch {
+        // Silently catch in polling
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [items, selectedAccount]);
 
   const refreshSchedulerStatus = useCallback(async () => {
     try {
@@ -169,8 +216,13 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         const hasTiktok = uploaded.includes('tiktok');
         const hasInstagram = uploaded.includes('instagram') || uploaded.includes('meta');
         const hasFacebook = uploaded.includes('facebook');
-        if (filterStatus === 'PENDING' && uploaded.length > 0) return false;
-        if (filterStatus === 'UPLOADED' && uploaded.length === 0) return false;
+        const isFullyUploaded = (currentAccData?.tiktok_active ? hasTiktok : true) &&
+                                (currentAccData?.instagram_active ? hasInstagram : true) &&
+                                (currentAccData?.facebook_active ? hasFacebook : true) &&
+                                (uploaded.length > 0);
+
+        if (filterStatus === 'PENDING' && isFullyUploaded) return false;
+        if (filterStatus === 'UPLOADED' && !isFullyUploaded) return false;
         if (filterStatus === 'TIKTOK_ONLY' && (!hasTiktok || hasInstagram || hasFacebook)) return false;
         if (filterStatus === 'INSTAGRAM_ONLY' && (!hasInstagram || hasTiktok || hasFacebook)) return false;
         if (filterStatus === 'FACEBOOK_ONLY' && (!hasFacebook || hasTiktok || hasInstagram)) return false;
@@ -230,14 +282,32 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   const unuploadedSortedItems = useMemo(() => {
     return sortedItems.filter((item) => {
       const uploaded = item.uploaded_platforms || [];
-      return uploaded.length === 0;
+      const hasTiktok = uploaded.includes('tiktok');
+      const hasInstagram = uploaded.includes('instagram') || uploaded.includes('meta');
+      const hasFacebook = uploaded.includes('facebook');
+
+      // Check if any connected platform is not yet uploaded
+      const tiktokNeeded = currentAccData?.tiktok_active ? !hasTiktok : false;
+      const instagramNeeded = currentAccData?.instagram_active ? !hasInstagram : false;
+      const facebookNeeded = currentAccData?.facebook_active ? !hasFacebook : false;
+
+      if (currentAccData?.tiktok_active || currentAccData?.instagram_active || currentAccData?.facebook_active) {
+        return tiktokNeeded || instagramNeeded || facebookNeeded;
+      }
+
+      // If no platform connection data yet, consider any item not uploaded to all 3 platforms as pending
+      return !hasTiktok || !hasInstagram || !hasFacebook;
     });
-  }, [sortedItems]);
+  }, [sortedItems, currentAccData]);
 
   // Mass upload queue: executes strictly in the exact order shown on screen (#1 -> #2 -> #3 -> ...)
+  // If unuploadedSortedItems has pending items, use them; otherwise allow sortedItems for re-uploading / scheduling
   const massUploadQueue = useMemo(() => {
-    return [...unuploadedSortedItems];
-  }, [unuploadedSortedItems]);
+    if (unuploadedSortedItems.length > 0) {
+      return [...unuploadedSortedItems];
+    }
+    return [...sortedItems];
+  }, [unuploadedSortedItems, sortedItems]);
 
   // Auto-select topmost item when items load, account changes, or filtered list updates
   useEffect(() => {
@@ -258,7 +328,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   const selectedItem = (selectedItemKey && sortedItems.find((i) => i.item_key === selectedItemKey)) || sortedItems[0] || null;
   const currentEdit = selectedItem ? (editedItems[selectedItem.item_key] || {
     caption: selectedItem.caption,
-    soundMode: selectedItem.meta?.sound_mode || 'favorite',
+    soundMode: selectedItem.meta?.sound_mode || 'none',
     soundQuery: selectedItem.meta?.sound_query ?? '',
     soundDb: selectedItem.meta?.sound_db !== undefined && selectedItem.meta?.sound_db !== null && selectedItem.meta?.sound_db !== '' ? selectedItem.meta.sound_db : (selectedItem.category === 'Video' ? '-7' : '0'),
     scheduledTime: selectedItem.meta?.scheduled_time || '',
@@ -269,16 +339,33 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   const currentHashtags = currentEdit ? (currentEdit.caption?.match(/#[A-Za-z0-9_]+/g) || []) : [];
 
   // Active platforms computation
-  const activePlatforms = [];
-  if (currentAccData.tiktok_active) activePlatforms.push('TikTok');
-  if (currentAccData.instagram_active) activePlatforms.push('Instagram');
-  if (currentAccData.facebook_active) activePlatforms.push('Facebook');
+  const activePlatforms = useMemo(() => {
+    const plats = [];
+    if (currentAccData?.tiktok_active) plats.push('TikTok');
+    if (currentAccData?.instagram_active) plats.push('Instagram');
+    if (currentAccData?.facebook_active) plats.push('Facebook');
+    return plats;
+  }, [currentAccData?.tiktok_active, currentAccData?.instagram_active, currentAccData?.facebook_active]);
+
+  const uploadedPlatforms = selectedItem?.uploaded_platforms || [];
+  const hasItemTiktok = uploadedPlatforms.includes('tiktok');
+  const hasItemInstagram = uploadedPlatforms.includes('instagram') || uploadedPlatforms.includes('meta');
+  const hasItemFacebook = uploadedPlatforms.includes('facebook');
+
+  const remainingPlatforms = [];
+  if (currentAccData.tiktok_active && !hasItemTiktok) remainingPlatforms.push('TikTok');
+  if (currentAccData.instagram_active && !hasItemInstagram) remainingPlatforms.push('Instagram');
+  if (currentAccData.facebook_active && !hasItemFacebook) remainingPlatforms.push('Facebook');
 
   let publishBtnText = 'Publish Konten';
   const isPublishDisabled = activePlatforms.length === 0;
 
   if (activePlatforms.length === 0) {
     publishBtnText = 'Belum Ada Platform Terhubung (Hubungkan Akun)';
+  } else if (remainingPlatforms.length === 0 && uploadedPlatforms.length > 0) {
+    publishBtnText = 'Semua Platform Sudah Terbit (Selesai)';
+  } else if (remainingPlatforms.length > 0 && remainingPlatforms.length < activePlatforms.length) {
+    publishBtnText = `Lanjutkan Publish ke ${remainingPlatforms.join(' & ')}`;
   } else if (activePlatforms.length === 1) {
     publishBtnText = `Publish to ${activePlatforms[0]}`;
   } else {
@@ -405,7 +492,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         caption: edit.caption || item.caption,
         tiktok_mentions: edit.tiktokMentions !== undefined ? edit.tiktokMentions : (item.meta?.tiktok_mentions || ''),
         instagram_mentions: edit.instagramMentions !== undefined ? edit.instagramMentions : (item.meta?.instagram_mentions || ''),
-        sound_mode: edit.soundMode !== undefined ? edit.soundMode : (item.meta?.sound_mode || 'favorite'),
+        sound_mode: edit.soundMode !== undefined ? edit.soundMode : (item.meta?.sound_mode || 'none'),
         sound_query: edit.soundQuery !== undefined ? edit.soundQuery : (item.meta?.sound_query ?? ''),
         sound_db: edit.soundDb !== undefined && edit.soundDb !== null && edit.soundDb !== '' ? edit.soundDb : itemDefaultDb,
         scheduled_time: edit.scheduledTime || null,
@@ -424,7 +511,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
                   ...(it.meta || {}),
                   tiktok_mentions: edit.tiktokMentions !== undefined ? edit.tiktokMentions : (it.meta?.tiktok_mentions || ''),
                   instagram_mentions: edit.instagramMentions !== undefined ? edit.instagramMentions : (it.meta?.instagram_mentions || ''),
-                  sound_mode: edit.soundMode !== undefined ? edit.soundMode : (it.meta?.sound_mode || 'favorite'),
+                  sound_mode: edit.soundMode !== undefined ? edit.soundMode : (it.meta?.sound_mode || 'none'),
                   sound_query: edit.soundQuery !== undefined ? edit.soundQuery : (it.meta?.sound_query ?? ''),
                   sound_db: edit.soundDb !== undefined && edit.soundDb !== null && edit.soundDb !== '' ? edit.soundDb : itemDefaultDb,
                   scheduled_time: edit.scheduledTime || null,
@@ -656,7 +743,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
   };
 
   // Action: Start Sequential Mass Upload (from bottom to top)
-  const handleStartMassUpload = async () => {
+  const handleStartMassUpload = async (selectedPlatforms = null) => {
     if (isPublishDisabled) {
       showToast('Harap hubungkan akun ke minimal satu platform terlebih dahulu', 'error');
       setShowAccountManagerModal(true);
@@ -672,6 +759,10 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     setShowMassUploadModal(false);
     setBatchPublishing(true);
     batchAbortRef.current = false;
+
+    const platformParam = selectedPlatforms && selectedPlatforms.length > 0
+      ? selectedPlatforms.join(',')
+      : 'all';
 
     showToast(`🚀 Memulai upload massal ${queueToProcess.length} media secara berurutan (dari bawah ke atas)...`, 'info');
 
@@ -691,7 +782,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         item: currentItem,
       };
 
-      const result = await uploadSingleItemPromise(currentItem, 'all', batchInfo);
+      const result = await uploadSingleItemPromise(currentItem, platformParam, batchInfo);
       if (result.success) {
         successCount++;
         showToast(`✓ (${i + 1}/${queueToProcess.length}) ${currentItem.name} selesai terposting!`, 'success');
@@ -717,7 +808,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     }
   };
 
-  const handleBatchSchedule = async (scheduledItems) => {
+  const handleBatchSchedule = async (scheduledItems, selectedPlatforms = ['tiktok', 'instagram', 'facebook']) => {
     if (!selectedAccount) {
       showToast('Pilih akun terlebih dahulu', 'error');
       return;
@@ -733,9 +824,10 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         date: item.date,
         item_name: item.name,
         scheduled_time: item.scheduled_time,
+        platforms: selectedPlatforms,
       }));
 
-      const res = await batchScheduleContentApi(selectedAccount, itemsPayload);
+      const res = await batchScheduleContentApi(selectedAccount, itemsPayload, selectedPlatforms);
       if (res.status === 'success') {
         showToast(res.message || `Berhasil menjadwalkan ${itemsPayload.length} konten!`, 'success');
         await fetchContent(selectedAccount);
@@ -749,23 +841,29 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     }
   };
 
-  const handleBatchClearSchedule = async (itemsToClear) => {
-    if (!selectedAccount) {
+  const handleBatchClearSchedule = async (itemsToClear, targetAccount = null) => {
+    const acc = targetAccount || selectedAccount;
+    if (!acc) {
       showToast('Pilih akun terlebih dahulu', 'error');
       return;
     }
 
     try {
-      const itemsPayload = (itemsToClear || []).map((item) => ({
-        category: item.category,
-        date: item.date,
-        item_name: item.name,
-      }));
+      const itemsPayload = itemsToClear
+        ? itemsToClear.map((item) => ({
+            account: item.account || acc,
+            category: item.category,
+            date: item.date,
+            item_name: item.item_name || item.name,
+          }))
+        : null;
 
-      const res = await batchClearScheduleApi(selectedAccount, itemsPayload);
+      const res = await batchClearScheduleApi(acc, itemsPayload);
       if (res.status === 'success') {
-        showToast(res.message || 'Berhasil menghapus semua jadwal antrean!', 'success');
-        await fetchContent(selectedAccount);
+        showToast(res.message || 'Berhasil menghapus jadwal antrean!', 'success');
+        if (selectedAccount) {
+          await fetchContent(selectedAccount);
+        }
         refreshSchedulerStatus();
       } else {
         showToast(res.message || 'Gagal menghapus jadwal antrean', 'error');
@@ -799,6 +897,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         category: itemToDelete.category,
         date: itemToDelete.date,
         item_name: itemToDelete.name,
+        item_key: itemToDelete.item_key,
       });
       if (data.status === 'success') {
         showToast(`Berhasil menghapus ${itemToDelete.name}`);
@@ -812,6 +911,22 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
       showToast('Gagal menghapus file media', 'error');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Action: Reset Upload Status back to PENDING
+  const handleResetStatus = async (item) => {
+    if (!item) return;
+    try {
+      const data = await resetContentStatusApi(item.account, item.item_key);
+      if (data.status === 'success') {
+        showToast(`Status upload untuk '${item.name}' berhasil di-reset ke PENDING!`);
+        await fetchContent();
+      } else {
+        showToast(data.detail || 'Gagal mereset status upload', 'error');
+      }
+    } catch {
+      showToast('Gagal mereset status upload', 'error');
     }
   };
 
@@ -852,6 +967,10 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
         carouselSlides.forEach((slide) => {
           formData.append('files', slide.file ? slide.file : slide);
         });
+      } else if (selectedMediaFiles && selectedMediaFiles.length > 0) {
+        selectedMediaFiles.forEach((m) => {
+          formData.append('files', m.file ? m.file : m);
+        });
       } else if (singleMediaFile) {
         formData.append('files', singleMediaFile.file ? singleMediaFile.file : singleMediaFile);
       }
@@ -862,19 +981,55 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
 
       const data = await uploadMediaFilesApi(formData);
       if (data.status === 'success') {
-        showToast(data.message || 'Media berhasil ditambahkan ke antrean! AI sedang membuat caption otomatis di latar belakang...');
+        const itemKey = data.item_key || (category === 'Carousel' ? `Carousel/${date}/${data.folder_name}` : `${category}/${date}/${data.filename}`);
+        const totalCount = data.count || (data.item_keys ? data.item_keys.length : 1);
+        const successMsg = totalCount > 1
+          ? `✨ ${totalCount} ${category} berhasil ditambahkan sebagai item terpisah! Sedang membuat caption dengan AI...`
+          : '✨ Media berhasil ditambahkan ke antrean! Sedang membuat caption dengan AI...';
+
+        showToast(successMsg, 'info');
         setShowUploadModal(false);
         setSingleMediaFile(null);
         setSingleMediaPreviewUrl(null);
+        setSelectedMediaFiles([]);
         setCarouselSlides([]);
         setIsScheduledUpload(false);
         setUploadScheduleTime(getLocalNowIso());
-        fetchContent();
 
-        // Background auto-refresh to seamlessly populate AI-generated caption
-        setTimeout(() => fetchContent(), 3000);
-        setTimeout(() => fetchContent(), 7000);
-        setTimeout(() => fetchContent(), 12000);
+        // Immediately select the first new item and trigger caption generating indicator
+        setSelectedItemKey(itemKey);
+        setGeneratingCaption(itemKey);
+
+        // Fetch fresh content immediately so cards appear in list
+        await fetchContent(selectedAccount, true);
+
+        // Smart polling to detect AI caption completion for all target items
+        const targetKeys = data.item_keys || [itemKey];
+        let pollCount = 0;
+        const pollInterval = setInterval(async () => {
+          pollCount += 1;
+          try {
+            const freshData = await fetchContentApi(selectedAccount);
+            const freshItems = freshData.items || [];
+            const stillGeneratingAny = freshItems.some(
+              (it) => targetKeys.includes(it.item_key) && Boolean(it.is_generating_caption)
+            );
+
+            if (!stillGeneratingAny || pollCount >= 15) {
+              clearInterval(pollInterval);
+              setGeneratingCaption(null);
+              await fetchContent(selectedAccount, true);
+              const finishedCount = freshItems.filter(
+                (it) => targetKeys.includes(it.item_key) && it.caption && it.caption.trim()
+              ).length;
+              if (finishedCount > 0) {
+                showToast(`✨ Caption AI untuk ${finishedCount > 1 ? `${finishedCount} konten` : `'${data.filename || 'media'}'`} selesai dibuat!`, 'success');
+              }
+            }
+          } catch {
+            if (pollCount >= 15) clearInterval(pollInterval);
+          }
+        }, 2000);
       } else {
         showToast(data.detail || 'Gagal mengunggah media', 'error');
       }
@@ -928,6 +1083,8 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     setSingleMediaFile,
     singleMediaPreviewUrl,
     setSingleMediaPreviewUrl,
+    selectedMediaFiles,
+    setSelectedMediaFiles,
     carouselSlides,
     setCarouselSlides,
     isScheduledUpload,
@@ -951,6 +1108,7 @@ export function useContent(selectedAccount, currentAccData, showToast, setShowAc
     handleGenerateCaption,
     handleUploadItem,
     handleConfirmDelete,
+    handleResetStatus,
     handleCreateDateFolder,
     handleMediaFileUpload,
     unuploadedSortedItems,

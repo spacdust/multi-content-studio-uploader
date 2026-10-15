@@ -157,17 +157,20 @@ class FacebookUploader:
                     page.goto("https://www.facebook.com/", timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(4000)
 
-                    if "login" in page.url:
+                    if "login" in page.url or page.locator("input[type='password'], input[name='pass']").count() > 0:
                         page.screenshot(path=screenshot_path)
                         browser.close()
                         from src.auth_manager import AuthManager
                         AuthManager.invalidate_session(account_name, "facebook")
-                        return False, f"Session Facebook untuk '{account_name}' telah kadaluarsa.", screenshot_path
+                        err_msg = f"Session Facebook untuk '{account_name}' telah kadaluarsa."
+                        PublishTracker.update_step(session_id, "facebook", "Sesi Expired", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
 
                     self.dismiss_popups(page)
 
-                    # 2. Tekan tombol/ikon Reel atau arahkan langsung ke /reel/create
+                    # 2. Tekan tombol Reel dan cegat file chooser secara native
                     console.print("[cyan]2. Membuka composer Reel Facebook...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Mengunggah video ke Facebook Reel...", 40, f"Mengunggah file video {Path(resolved_files[0]).name} ke Facebook Reel", "step")
                     photo_video_btn = page.locator(
                         "div[aria-label='Reel'], "
                         "div[aria-label='Buat Reel'], "
@@ -178,89 +181,57 @@ class FacebookUploader:
                     if photo_video_btn.count() == 0:
                         photo_video_btn = page.locator("div[role='main'] div[aria-label='Reel'], div[role='main'] div:has-text('Reels')").first
 
+                    file_injected = False
                     if photo_video_btn.count() > 0 and photo_video_btn.is_visible():
-                        photo_video_btn.click(force=True)
-                        page.wait_for_timeout(3000)
-                    else:
-                        console.print("[cyan]Mengarahkan langsung ke Facebook Reel Creator (https://www.facebook.com/reel/create)...[/cyan]")
                         try:
-                            page.goto("https://www.facebook.com/reel/create", timeout=30000, wait_until="domcontentloaded")
-                            page.wait_for_timeout(4000)
-                            self.dismiss_popups(page)
-                        except Exception:
-                            pass
+                            console.print("[cyan]Memicu file chooser dari tombol Reel Facebook...[/cyan]")
+                            with page.expect_file_chooser(timeout=10000) as fc_info:
+                                photo_video_btn.click(force=True)
+                            file_chooser = fc_info.value
+                            file_chooser.set_files([resolved_files[0]])
+                            file_injected = True
+                            console.print("[bold green]File video berhasil disuntikkan via file chooser![/bold green]")
+                        except Exception as fc_err:
+                            console.print(f"[yellow]File chooser tidak terpicu langsung dari tombol Reel: {fc_err}. Mencari input file di halaman...[/yellow]")
 
-                    # 3. Upload Video
-                    console.print("[cyan]3. Menyuntikkan file video...[/cyan]")
-                    PublishTracker.update_step(session_id, "facebook", "Mengunggah video ke Facebook...", 40, f"Mengunggah file video {Path(resolved_files[0]).name} ke Facebook Reel", "step")
-                    file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file'][accept*='video'], input[type='file']").first
-                    for _ in range(12):
-                        if file_input.count() > 0:
-                            break
-                        page.wait_for_timeout(1000)
+                    if not file_injected:
                         file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file'][accept*='video'], input[type='file']").first
+                        for _ in range(10):
+                            if file_input.count() > 0:
+                                break
+                            page.wait_for_timeout(1000)
+                            file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file'][accept*='video'], input[type='file']").first
 
-                    if file_input.count() == 0 and "reel/create" not in page.url:
-                        console.print("[cyan]Input file belum muncul, mencoba navigasi langsung ke /reel/create...[/cyan]")
-                        try:
-                            page.goto("https://www.facebook.com/reel/create", timeout=30000, wait_until="domcontentloaded")
-                            page.wait_for_timeout(4000)
-                            file_input = page.locator("input[type='file']").first
-                        except Exception:
-                            pass
+                        if file_input.count() > 0:
+                            file_input.set_input_files([resolved_files[0]])
+                            file_injected = True
 
-                    if file_input.count() == 0:
+                    if not file_injected:
                         page.screenshot(path=screenshot_path)
                         browser.close()
-                        err_msg = "Input file video tidak ditemukan di Facebook."
+                        err_msg = "Tombol Reel maupun input file video tidak ditemukan di Facebook."
                         PublishTracker.update_step(session_id, "facebook", "Input Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
 
-                    file_input.set_input_files([resolved_files[0]])
+                    # 3. Menunggu modal composer Reel terbuka
+                    console.print("[cyan]3. Menunggu modal composer Reel terbuka...[/cyan]")
+                    dialog = page.locator("div[role='dialog']").first
+                    try:
+                        dialog.wait_for(state="visible", timeout=25000)
+                    except Exception:
+                        pass
                     page.wait_for_timeout(4000)
 
-                    # 4. Next Button 1 (Ke Edit reel)
-                    console.print("[cyan]4. Melanjutkan ke Edit reel...[/cyan]")
-                    PublishTracker.update_step(session_id, "facebook", "Konfigurasi Reel Facebook...", 55, "Melanjutkan ke konfigurasi reel", "step")
-                    next_btn1 = page.locator(
-                        "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
-                        "div[role='dialog'] div[aria-label='Berikutnya'], "
-                        "div[role='dialog'] button:has-text('Berikutnya')"
-                    ).last
-                    try:
-                        next_btn1.wait_for(state="visible", timeout=30000)
-                    except Exception:
-                        pass
-                    if next_btn1.count() > 0:
-                        next_btn1.click(force=True)
-                        page.wait_for_timeout(3500)
-
-                    # 5. Next Button 2 (Ke Pengaturan reel)
-                    console.print("[cyan]5. Melanjutkan ke Pengaturan reel...[/cyan]")
-                    next_btn2 = page.locator(
-                        "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
-                        "div[role='dialog'] div[aria-label='Berikutnya'], "
-                        "div[role='dialog'] button:has-text('Berikutnya')"
-                    ).last
-                    try:
-                        next_btn2.wait_for(state="visible", timeout=15000)
-                    except Exception:
-                        pass
-                    if next_btn2.count() > 0:
-                        next_btn2.click(force=True)
-                        page.wait_for_timeout(3500)
-
-                    # 6. Isi Caption di Pengaturan Reel
+                    # 4. Mengisi caption Reel (pada tahap Edit)
                     if sanitized_caption:
-                        console.print("[cyan]6. Mengisi deskripsi caption Reel Facebook...[/cyan]")
-                        PublishTracker.update_step(session_id, "facebook", "Mengisi caption Reel...", 75, "Mengisi teks caption dan hashtag di Reel Facebook", "step")
+                        console.print("[cyan]4. Mengisi deskripsi caption Reel Facebook...[/cyan]")
+                        PublishTracker.update_step(session_id, "facebook", "Mengisi caption Reel...", 60, "Mengisi teks caption di Reel Facebook", "step")
                         desc_box = page.locator(
+                            "div[role='dialog'] div[aria-label*='Deskripsikan reel'], "
+                            "div[role='dialog'] div[aria-label*='Describe your reel'], "
                             "div[role='dialog'] div[role='textbox'], "
                             "div[role='dialog'] div[contenteditable='true'], "
-                            "div[role='dialog'] textarea, "
-                            "div[role='main'] div[role='textbox'], "
-                            "div[role='form'] div[role='textbox'], "
-                            "div[data-lexical-editor='true']"
+                            "div[role='dialog'] textarea"
                         ).first
                         if desc_box.count() > 0:
                             desc_box.click(force=True)
@@ -268,26 +239,62 @@ class FacebookUploader:
                             page.keyboard.type(sanitized_caption)
                             page.wait_for_timeout(1000)
 
-                    # 7. Publish / Kirim
-                    console.print("[bold green]7. Mempublikasikan Reel ke Halaman Facebook...[/bold green]")
+                    # 5. Tombol Berikutnya (Lanjut ke Pengaturan)
+                    console.print("[cyan]5. Melanjutkan ke Pengaturan reel (Berikutnya)...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", "Konfigurasi Reel Facebook...", 75, "Melanjutkan ke konfigurasi reel", "step")
+                    next_btn = page.locator(
+                        "div[role='dialog'] div[role='button']:has-text('Berikutnya'), "
+                        "div[role='dialog'] div[aria-label='Berikutnya'], "
+                        "div[role='dialog'] button:has-text('Berikutnya'), "
+                        "div[role='dialog'] div[role='button']:has-text('Next'), "
+                        "div[role='dialog'] div[aria-label='Next'], "
+                        "div[role='dialog'] button:has-text('Next')"
+                    ).last
+                    try:
+                        next_btn.wait_for(state="visible", timeout=25000)
+                    except Exception:
+                        pass
+                    if next_btn.count() > 0 and next_btn.is_visible():
+                        next_btn.click(force=True)
+                        page.wait_for_timeout(4000)
+
+                    # Fallback jika caption belum terisi di tahap Edit, isi di tahap Pengaturan
+                    if sanitized_caption:
+                        desc_box_step2 = page.locator(
+                            "div[role='dialog'] div[aria-label*='Deskripsikan reel'], "
+                            "div[role='dialog'] div[aria-label*='Describe your reel'], "
+                            "div[role='dialog'] div[role='textbox'], "
+                            "div[role='dialog'] div[contenteditable='true']"
+                        ).first
+                        if desc_box_step2.count() > 0 and desc_box_step2.is_visible():
+                            existing_txt = desc_box_step2.inner_text().strip()
+                            if not existing_txt:
+                                desc_box_step2.click(force=True)
+                                page.wait_for_timeout(500)
+                                page.keyboard.type(sanitized_caption)
+                                page.wait_for_timeout(1000)
+
+                    # 6. Publish / Kirim
+                    console.print("[bold green]6. Mempublikasikan Reel ke Halaman Facebook...[/bold green]")
                     PublishTracker.update_step(session_id, "facebook", "Mempublikasikan Reel...", 85, "Menekan tombol 'Kirim' / 'Posting' Reel Facebook", "step")
                     publish_btn = page.locator(
                         "div[role='dialog'] div[role='button']:has-text('Posting'), "
                         "div[role='dialog'] div[aria-label='Posting'], "
                         "div[role='dialog'] button:has-text('Posting'), "
+                        "div[role='dialog'] div[role='button']:has-text('Post'), "
+                        "div[role='dialog'] div[aria-label='Post'], "
+                        "div[role='dialog'] button:has-text('Post'), "
                         "div[role='dialog'] div[role='button']:has-text('Kirim'), "
                         "div[role='dialog'] div[aria-label='Kirim'], "
                         "div[role='dialog'] div[role='button']:has-text('Terbitkan'), "
                         "div[role='dialog'] div[aria-label='Terbitkan'], "
-                        "div[role='dialog'] div[role='button']:has-text('Post'), "
-                        "div[role='dialog'] div[aria-label='Post'], "
                         "div[role='dialog'] div[role='button']:has-text('Publish'), "
                         "div[role='dialog'] div[aria-label='Publish'], "
                         "div[role='button']:has-text('Posting'), "
                         "div[role='button']:has-text('Kirim')"
                     ).last
                     try:
-                        publish_btn.wait_for(state="visible", timeout=10000)
+                        publish_btn.wait_for(state="visible", timeout=25000)
                     except Exception:
                         pass
                     if publish_btn.count() > 0:
@@ -299,9 +306,9 @@ class FacebookUploader:
                         PublishTracker.update_step(session_id, "facebook", "Tombol Kirim Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
                         return False, err_msg, screenshot_path
 
-                    # 8. Tunggu konfirmasi dan tangani popup event ('Terbitkan Postingan Asli')
+                    # 7. Tunggu konfirmasi dan tangani popup event ('Terbitkan Postingan Asli')
                     PublishTracker.update_step(session_id, "facebook", "Menunggu konfirmasi Facebook...", 95, "Memantau konfirmasi penerbitan Facebook & popup dialog...", "step")
-                    self.handle_post_confirmation(page, max_wait_sec=15)
+                    self.handle_post_confirmation(page, max_wait_sec=20)
                     page.wait_for_timeout(3000)
                     try:
                         context.storage_state(path=str(state_file))
@@ -319,7 +326,7 @@ class FacebookUploader:
                     page.goto("https://www.facebook.com/", timeout=45000, wait_until="domcontentloaded")
                     page.wait_for_timeout(5000)
 
-                    if "login" in page.url:
+                    if "login" in page.url or page.locator("input[type='password'], input[name='pass']").count() > 0:
                         page.screenshot(path=screenshot_path)
                         browser.close()
                         from src.auth_manager import AuthManager
@@ -330,28 +337,57 @@ class FacebookUploader:
 
                     self.dismiss_popups(page)
 
-                    # 2. Tekan ikon HIJAU Foto/video sebelah kanan 'Apa yang Anda pikirkan'
-                    console.print("[cyan]2. Membuka dialog postingan foto (ikon hijau Foto/video)...[/cyan]")
-                    create_post_btn = page.locator(
+                    # 2. Tekan ikon Foto/video dengan file chooser interceptor
+                    console.print(f"[cyan]2. Membuka dialog postingan foto & mengunggah {len(resolved_files)} file...[/cyan]")
+                    PublishTracker.update_step(session_id, "facebook", f"Mengunggah {len(resolved_files)} file media...", 45, f"Mengunggah {len(resolved_files)} file {category_name} ke Facebook", "step")
+
+                    file_injected = False
+                    pv_btn = page.locator(
                         "div[aria-label='Foto/video'], "
                         "div[role='button']:has-text('Foto/video'), "
-                        "div[role='button']:has-text('Photo/video'), "
-                        "span:has-text('Apa yang Anda pikirkan'), "
-                        "span:has-text('What\\'s on your mind')"
+                        "div[role='button']:has-text('Photo/video')"
                     ).first
-                    if create_post_btn.count() > 0:
-                        create_post_btn.click(force=True)
-                        page.wait_for_timeout(2500)
+                    if pv_btn.count() > 0 and pv_btn.is_visible():
+                        try:
+                            with page.expect_file_chooser(timeout=8000) as fc_info:
+                                pv_btn.click(force=True)
+                            fc_info.value.set_files(resolved_files)
+                            file_injected = True
+                            page.wait_for_timeout(3000)
+                        except Exception as fc_err:
+                            console.print(f"[yellow]File chooser tidak terpicu dari Foto/video: {fc_err}[/yellow]")
 
-                    # 3. Input Files
-                    console.print(f"[cyan]3. Menyuntikkan {len(resolved_files)} file media...[/cyan]")
-                    PublishTracker.update_step(session_id, "facebook", f"Mengunggah {len(resolved_files)} file media...", 45, f"Mengunggah {len(resolved_files)} file {category_name} ke Facebook", "step")
-                    file_input = page.locator("div[role='dialog'] input[type='file']").first
-                    if file_input.count() == 0:
-                        file_input = page.locator("input[type='file']").first
-                    if file_input.count() > 0:
-                        file_input.set_input_files(resolved_files)
-                        page.wait_for_timeout(4000)
+                    if not file_injected:
+                        # Buka composer modal lewat span 'Apa yang Anda pikirkan'
+                        create_post_btn = page.locator(
+                            "span:has-text('Apa yang Anda pikirkan'), "
+                            "span:has-text('What\\'s on your mind')"
+                        ).first
+                        if create_post_btn.count() > 0:
+                            create_post_btn.click(force=True)
+                            page.wait_for_timeout(2500)
+
+                        file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file']").first
+                        for _ in range(8):
+                            if file_input.count() > 0:
+                                break
+                            page.wait_for_timeout(1000)
+                            file_input = page.locator("div[role='dialog'] input[type='file'], input[type='file']").first
+
+                        if file_input.count() > 0:
+                            file_input.set_input_files(resolved_files)
+                            file_injected = True
+                            page.wait_for_timeout(4000)
+
+                    if not file_injected:
+                        page.screenshot(path=screenshot_path)
+                        browser.close()
+                        err_msg = "Gagal menyuntikkan file media postingan ke Facebook."
+                        PublishTracker.update_step(session_id, "facebook", "Input Hilang", 0, err_msg, "error", is_failed=True, error_msg=err_msg)
+                        return False, err_msg, screenshot_path
+
+                    # 3. Menunggu dialog postingan siap
+                    page.wait_for_timeout(3000)
 
                     # 4. Isi Caption langsung di awal tepat di atas gambar
                     if sanitized_caption:

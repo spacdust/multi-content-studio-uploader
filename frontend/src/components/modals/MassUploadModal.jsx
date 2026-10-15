@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Zap,
   X,
@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   CalendarRange,
   ShoppingBag,
+  Share2,
 } from 'lucide-react';
 import {
   getLocalTodayDate,
@@ -24,6 +25,30 @@ import {
   formatDateDisplay,
   formatTimeDisplay
 } from '../../utils/dateUtils';
+
+const PLATFORMS_CONFIG = [
+  {
+    id: 'tiktok',
+    name: 'TikTok Studio',
+    desc: 'Video & Carousel',
+    badgeColor: 'border-cyan-500/40 text-cyan-300 bg-cyan-950/40',
+    dotColor: 'bg-cyan-400',
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    desc: 'Reels & Feed',
+    badgeColor: 'border-pink-500/40 text-pink-300 bg-pink-950/40',
+    dotColor: 'bg-pink-400',
+  },
+  {
+    id: 'facebook',
+    name: 'Facebook',
+    desc: 'Fanspage & Reels',
+    badgeColor: 'border-blue-500/40 text-blue-300 bg-blue-950/40',
+    dotColor: 'bg-blue-400',
+  },
+];
 
 const INTERVAL_PRESETS = [
   { label: '15 Mnt', minutes: 15 },
@@ -78,12 +103,28 @@ export default function MassUploadModal({
   const [customIntervalMins, setCustomIntervalMins] = useState(45);
   const [isApplyingSchedule, setIsApplyingSchedule] = useState(false);
 
-  // Initialize start time when modal opens
+  // Platform selection state (default: all 3 platforms or authenticated ones)
+  const [selectedPlatforms, setSelectedPlatforms] = useState(['tiktok', 'instagram', 'facebook']);
+  const prevIsOpenRef = useRef(false);
+
+  // Sync selected platforms and schedule start ONLY when modal transitions from closed to open
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !prevIsOpenRef.current) {
+      if (activePlatforms && activePlatforms.length > 0) {
+        const lowerActives = activePlatforms.map((p) => p.toLowerCase());
+        const supported = ['tiktok', 'instagram', 'facebook'].filter((p) => lowerActives.includes(p));
+        if (supported.length > 0) {
+          setSelectedPlatforms(supported);
+        } else {
+          setSelectedPlatforms(['tiktok', 'instagram', 'facebook']);
+        }
+      } else {
+        setSelectedPlatforms(['tiktok', 'instagram', 'facebook']);
+      }
+
       // If queue has an item with schedule already, use it as starting point
-      const firstScheduled = queue.find((i) => i.meta?.scheduled_time);
-      if (firstScheduled && firstScheduled.meta.scheduled_time.includes('T')) {
+      const firstScheduled = queue && queue.find((i) => i.meta?.scheduled_time);
+      if (firstScheduled && firstScheduled.meta?.scheduled_time && firstScheduled.meta.scheduled_time.includes('T')) {
         const [dPart, tPart] = firstScheduled.meta.scheduled_time.split('T');
         if (dPart) setStartDate(dPart);
         if (tPart) {
@@ -98,7 +139,19 @@ export default function MassUploadModal({
         setStartMin(def.min);
       }
     }
-  }, [isOpen, queue]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  const togglePlatform = (platformId) => {
+    setSelectedPlatforms((prev) => {
+      if (prev.includes(platformId)) {
+        if (prev.length <= 1) return prev; // Minimal 1 platform harus tetap aktif
+        return prev.filter((p) => p !== platformId);
+      } else {
+        return [...prev, platformId];
+      }
+    });
+  };
 
   const effectiveIntervalMinutes = useMemo(() => {
     if (selectedInterval === 'custom') {
@@ -174,10 +227,16 @@ export default function MassUploadModal({
     if (!onConfirmSchedule) return;
     setIsApplyingSchedule(true);
     try {
-      await onConfirmSchedule(scheduledQueueItems);
+      await onConfirmSchedule(scheduledQueueItems, selectedPlatforms);
       onClose();
     } finally {
       setIsApplyingSchedule(false);
+    }
+  };
+
+  const handleImmediateUploadClick = () => {
+    if (onConfirm) {
+      onConfirm(selectedPlatforms);
     }
   };
 
@@ -416,6 +475,80 @@ export default function MassUploadModal({
                     </div>
                   )}
                 </div>
+
+                {/* Target Platform Selection (Switch ON/OFF) */}
+                <div className="pt-3 border-t border-zinc-800/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                      <Share2 className="w-3.5 h-3.5 text-pink-400" />
+                      3. Pilih Platform Tujuan Upload (Switch ON / OFF)
+                    </label>
+                    <span className="text-[10px] text-zinc-400 font-mono font-medium">
+                      {selectedPlatforms.length} / {PLATFORMS_CONFIG.length} Terpilih
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                    {PLATFORMS_CONFIG.map((platform) => {
+                      const isEnabled = selectedPlatforms.includes(platform.id);
+                      const isOnlyOne = isEnabled && selectedPlatforms.length === 1;
+
+                      return (
+                        <div
+                          key={platform.id}
+                          onClick={() => togglePlatform(platform.id)}
+                          className={`p-2.5 rounded-xl border transition-all cursor-pointer select-none flex items-center justify-between gap-2 ${
+                            isEnabled
+                              ? `${platform.badgeColor} shadow-xs`
+                              : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-85 hover:border-zinc-700'
+                          }`}
+                        >
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`w-2 h-2 rounded-full transition-colors ${
+                                  isEnabled ? platform.dotColor : 'bg-zinc-600'
+                                }`}
+                              />
+                              <span className={`text-xs font-bold truncate ${isEnabled ? 'text-zinc-100' : 'text-zinc-400'}`}>
+                                {platform.name}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-zinc-500 font-mono pl-3.5 truncate">
+                              {platform.desc}
+                            </span>
+                          </div>
+
+                          {/* Interactive Toggle Switch */}
+                          <div
+                            role="switch"
+                            aria-checked={isEnabled}
+                            title={
+                              isOnlyOne
+                                ? 'Minimal 1 platform harus tetap aktif'
+                                : `${isEnabled ? 'Nonaktifkan' : 'Aktifkan'} ${platform.name}`
+                            }
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
+                              isEnabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                            } ${isOnlyOne ? 'cursor-not-allowed opacity-90' : ''}`}
+                          >
+                            <span
+                              className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                                isEnabled ? 'translate-x-4' : 'translate-x-0'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {selectedPlatforms.length === 1 && (
+                    <p className="text-[10px] text-amber-400/90 font-mono flex items-center gap-1 pt-0.5">
+                      <span>*</span> Minimal 1 platform harus tetap aktif untuk penjadwalan.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Schedule Summary Banner */}
@@ -434,6 +567,12 @@ export default function MassUploadModal({
                       postingan terakhir (#{queue.length}) pada{' '}
                       <strong className="text-cyan-300">
                         {scheduledQueueItems[queue.length - 1]?.relative_display}
+                      </strong>
+                      {' '}ke target platform:{' '}
+                      <strong className="text-emerald-300">
+                        {selectedPlatforms
+                          .map((p) => (p === 'tiktok' ? 'TikTok' : p === 'instagram' ? 'Instagram' : 'Facebook'))
+                          .join(', ')}
                       </strong>
                       . Auto-Scheduler akan otomatis mengunggah tepat pada jadwal masing-masing.
                     </p>
@@ -459,27 +598,78 @@ export default function MassUploadModal({
                 </div>
               </div>
 
-              {/* Active Platforms Badge */}
-              <div className="p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl space-y-2">
-                <span className="text-[11px] font-semibold text-zinc-400 block uppercase tracking-wider">
-                  Target Platform Aktif:
-                </span>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {activePlatforms.map((p) => (
-                    <span
-                      key={p}
-                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-200 flex items-center gap-1.5"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      {p === 'tiktok' ? 'TikTok Studio' : p === 'instagram' ? 'Instagram' : 'Facebook Fanpage'}
-                    </span>
-                  ))}
-                  {activePlatforms.length === 0 && (
-                    <span className="text-xs text-rose-400 flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5" /> Belum ada akun terhubung
-                    </span>
-                  )}
+              {/* Interactive Target Platform Selector in Immediate Tab */}
+              <div className="p-3.5 bg-zinc-950/80 border border-zinc-800 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                    <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+                    Target Platform Upload Langsung:
+                  </span>
+                  <span className="text-[10px] text-zinc-400 font-mono font-medium">
+                    {selectedPlatforms.length} / {PLATFORMS_CONFIG.length} Terpilih
+                  </span>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {PLATFORMS_CONFIG.map((platform) => {
+                    const isEnabled = selectedPlatforms.includes(platform.id);
+                    const isOnlyOne = isEnabled && selectedPlatforms.length === 1;
+
+                    return (
+                      <div
+                        key={platform.id}
+                        onClick={() => togglePlatform(platform.id)}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer select-none flex items-center justify-between gap-2 ${
+                          isEnabled
+                            ? `${platform.badgeColor} shadow-xs`
+                            : 'bg-zinc-900/60 border-zinc-800/80 text-zinc-500 opacity-60 hover:opacity-85 hover:border-zinc-700'
+                        }`}
+                      >
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`w-2 h-2 rounded-full transition-colors ${
+                                isEnabled ? platform.dotColor : 'bg-zinc-600'
+                              }`}
+                            />
+                            <span className={`text-xs font-bold truncate ${isEnabled ? 'text-zinc-100' : 'text-zinc-400'}`}>
+                              {platform.name}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono pl-3.5 truncate">
+                            {platform.desc}
+                          </span>
+                        </div>
+
+                        {/* Interactive Toggle Switch */}
+                        <div
+                          role="switch"
+                          aria-checked={isEnabled}
+                          title={
+                            isOnlyOne
+                              ? 'Minimal 1 platform harus tetap aktif'
+                              : `${isEnabled ? 'Nonaktifkan' : 'Aktifkan'} ${platform.name}`
+                          }
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
+                            isEnabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                          } ${isOnlyOne ? 'cursor-not-allowed opacity-90' : ''}`}
+                        >
+                          <span
+                            className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
+                              isEnabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {selectedPlatforms.length === 1 && (
+                  <p className="text-[10px] text-amber-400/90 font-mono flex items-center gap-1 pt-0.5">
+                    <span>*</span> Minimal 1 platform harus tetap aktif.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -610,9 +800,9 @@ export default function MassUploadModal({
             <button
               type="button"
               onClick={handleApplyScheduleClick}
-              disabled={queue.length === 0 || isApplyingSchedule}
+              disabled={queue.length === 0 || isApplyingSchedule || selectedPlatforms.length === 0}
               className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-2 transition shadow-lg ${
-                queue.length === 0 || isApplyingSchedule
+                queue.length === 0 || isApplyingSchedule || selectedPlatforms.length === 0
                   ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/50 cursor-not-allowed opacity-60'
                   : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white cursor-pointer active:scale-95 shadow-cyan-950/50'
               }`}
@@ -621,22 +811,28 @@ export default function MassUploadModal({
               <span>
                 {isApplyingSchedule
                   ? 'Menyimpan Jadwal...'
+                  : selectedPlatforms.length === 0
+                  ? 'Pilih Minimal 1 Platform'
                   : `Terapkan Jadwal (${queue.length} Konten Bertahap)`}
               </span>
             </button>
           ) : (
             <button
               type="button"
-              onClick={onConfirm}
-              disabled={isPublishDisabled || queue.length === 0}
+              onClick={handleImmediateUploadClick}
+              disabled={isPublishDisabled || queue.length === 0 || selectedPlatforms.length === 0}
               className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-2 transition shadow-lg ${
-                isPublishDisabled || queue.length === 0
+                isPublishDisabled || queue.length === 0 || selectedPlatforms.length === 0
                   ? 'bg-zinc-800 text-zinc-500 border border-zinc-700/50 cursor-not-allowed opacity-60'
                   : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white cursor-pointer active:scale-95 shadow-emerald-950/50'
               }`}
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Mulai Upload Massal ({queue.length} Media)</span>
+              <span>
+                {selectedPlatforms.length === 0
+                  ? 'Pilih Minimal 1 Platform'
+                  : `Mulai Upload Massal (${queue.length} Media)`}
+              </span>
             </button>
           )}
         </div>

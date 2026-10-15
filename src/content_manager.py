@@ -102,9 +102,77 @@ class ContentManager:
             return {}
 
     @classmethod
+    def save_history(cls, account_name: str, history: Dict[str, Any]) -> bool:
+        """Saves upload history for an account."""
+        acc_dir = get_account_dir(account_name)
+        acc_dir.mkdir(parents=True, exist_ok=True)
+        hist_file = acc_dir / "upload_history.json"
+        try:
+            with open(hist_file, "w", encoding="utf-8") as f:
+                json.dump(history, f, indent=2)
+            return True
+        except Exception as e:
+            console.print(f"[bold red]Gagal menyimpan upload history: {e}[/bold red]")
+            return False
+
+    @classmethod
+    def remove_item_history(cls, account_name: str, item_key: str) -> bool:
+        """
+        Completely removes an item's record from upload_history.json and queue_order.json.
+        Supports normalized paths, slashes, and relative names.
+        """
+        history = cls.load_history(account_name)
+        custom_order = cls.load_custom_order(account_name)
+        if not history and not custom_order:
+            return False
+
+        def clean_key(val: str) -> str:
+            s = str(val).replace("\\", "/").strip().lower()
+            s = re.sub(r"\s*\(\d+\s*slides\)", "", s)
+            return s
+
+        target_clean = clean_key(item_key)
+        target_basename = target_clean.split("/")[-1]
+
+        keys_to_remove = set()
+        for k in history.keys():
+            k_clean = clean_key(k)
+            if k_clean == target_clean:
+                keys_to_remove.add(k)
+            elif "/" in target_clean and (k_clean.endswith(f"/{target_clean}") or target_clean.endswith(f"/{k_clean}")):
+                keys_to_remove.add(k)
+            elif "/" not in target_clean and k_clean.split("/")[-1] == target_basename:
+                keys_to_remove.add(k)
+
+        changed = False
+        if keys_to_remove:
+            for k in keys_to_remove:
+                history.pop(k, None)
+            cls.save_history(account_name, history)
+            changed = True
+
+        if custom_order:
+            new_order = [
+                k for k in custom_order
+                if k not in keys_to_remove and clean_key(k) != target_clean and clean_key(k).split("/")[-1] != target_basename
+            ]
+            if len(new_order) != len(custom_order):
+                cls.save_custom_order(account_name, new_order)
+                changed = True
+
+        return changed
+
+    @classmethod
+    def reset_item_status(cls, account_name: str, item_key: str) -> bool:
+        """
+        Resets the upload status of an item (clears uploaded_platforms, timestamps, proofs, post_urls)
+        without deleting the content media files.
+        """
+        return cls.remove_item_history(account_name, item_key)
+
+    @classmethod
     def mark_as_uploaded(cls, account_name: str, item_key: str, platform: str, proof_path: Optional[str] = None, post_url: Optional[str] = None):
         """Marks a content item as successfully uploaded with timestamp, proof, and post URL."""
-        hist_file = cls.get_history_file(account_name)
         history = cls.load_history(account_name)
         
         if item_key not in history:
@@ -128,13 +196,11 @@ class ContentManager:
         if post_url:
             history[item_key]["post_urls"][platform] = str(post_url).strip()
 
-        with open(hist_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
+        cls.save_history(account_name, history)
 
     @classmethod
     def update_post_urls(cls, account_name: str, item_key: str, post_urls: Dict[str, str]) -> bool:
         """Updates or sets post URLs for specific platforms of an item."""
-        hist_file = cls.get_history_file(account_name)
         history = cls.load_history(account_name)
 
         if item_key not in history:
@@ -149,8 +215,7 @@ class ContentManager:
             elif plat in history[item_key]["post_urls"]:
                 del history[item_key]["post_urls"][plat]
 
-        with open(hist_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
+        cls.save_history(account_name, history)
         return True
 
     @classmethod
@@ -218,7 +283,7 @@ class ContentManager:
         meta = {
             "tiktok_mentions": "",
             "instagram_mentions": "",
-            "sound_mode": "favorite",
+            "sound_mode": "none",
             "sound_query": "",
             "sound_db": default_db,
             "platforms": ["tiktok", "instagram", "facebook"],
@@ -353,6 +418,25 @@ class ContentManager:
             custom_order_keys = cls.load_custom_order(acc)
             order_lookup = {k: idx for idx, k in enumerate(custom_order_keys)}
 
+            # Auto-prune orphaned history entries whose files no longer exist on disk
+            orphaned_history = [
+                hk for hk in list(history.keys())
+                if not (acc_dir / hk.replace("\\", "/")).exists()
+            ]
+            if orphaned_history:
+                for oh in orphaned_history:
+                    history.pop(oh, None)
+                cls.save_history(acc, history)
+
+            if custom_order_keys:
+                valid_custom_order = [
+                    ck for ck in custom_order_keys
+                    if (acc_dir / ck.replace("\\", "/")).exists()
+                ]
+                if len(valid_custom_order) != len(custom_order_keys):
+                    cls.save_custom_order(acc, valid_custom_order)
+                    order_lookup = {k: idx for idx, k in enumerate(valid_custom_order)}
+
             # 1. SCAN KATEGORI: VIDEO
             video_dir = acc_dir / "Video"
             if video_dir.exists():
@@ -465,10 +549,9 @@ class ContentManager:
 
     @classmethod
     def delete_item(cls, account_name: str, category: str, date: str, item_name: str, item_key: Optional[str] = None) -> bool:
-        """Safely deletes an item (video/poster file and its metadata, or carousel folder)."""
+        """Safely deletes an item (video/poster file and its metadata, or carousel folder) and purges its upload history."""
         acc_dir = CONTENT_DIR / account_name / category / date
-        if not acc_dir.exists():
-            return False
+        deleted = False
 
         if category == "Carousel":
             if item_key and "/" in item_key:
@@ -480,33 +563,49 @@ class ContentManager:
             if target_folder.exists() and target_folder.is_dir():
                 import shutil
                 shutil.rmtree(target_folder)
-                return True
-            for folder in acc_dir.iterdir():
-                if folder.is_dir() and (folder.name in item_name or item_name.startswith(folder.name)):
-                    import shutil
-                    shutil.rmtree(folder)
-                    return True
-        else:
-            media_file = acc_dir / item_name
-            txt_file = acc_dir / f"{media_file.stem}.txt"
-            json_file = acc_dir / f"{media_file.stem}.json"
-            
-            deleted = False
-            if media_file.exists():
-                media_file.unlink()
                 deleted = True
-            if txt_file.exists():
-                try:
-                    txt_file.unlink()
-                except Exception:
-                    pass
-            if json_file.exists():
-                try:
-                    json_file.unlink()
-                except Exception:
-                    pass
-            return deleted
-        return False
+            elif acc_dir.exists():
+                for folder in acc_dir.iterdir():
+                    if folder.is_dir() and (folder.name in item_name or item_name.startswith(folder.name)):
+                        import shutil
+                        shutil.rmtree(folder)
+                        deleted = True
+                        break
+        else:
+            if acc_dir.exists():
+                media_file = acc_dir / item_name
+                txt_file = acc_dir / f"{media_file.stem}.txt"
+                json_file = acc_dir / f"{media_file.stem}.json"
+                
+                if media_file.exists():
+                    media_file.unlink()
+                    deleted = True
+                if txt_file.exists():
+                    try:
+                        txt_file.unlink()
+                    except Exception:
+                        pass
+                if json_file.exists():
+                    try:
+                        json_file.unlink()
+                    except Exception:
+                        pass
+
+        # Purge upload history and queue order for all variations of this item
+        keys_to_purge = []
+        if item_key:
+            keys_to_purge.append(item_key)
+        clean_name = item_name.split(" (")[0].strip() if category == "Carousel" else item_name
+        keys_to_purge.append(f"{category}/{date}/{clean_name}")
+        keys_to_purge.append(f"{category}/{date}/{item_name}")
+        keys_to_purge.append(clean_name)
+
+        history_purged = False
+        for k in keys_to_purge:
+            if cls.remove_item_history(account_name, k):
+                history_purged = True
+
+        return deleted or history_purged
 
     @classmethod
     def print_content_table(cls, account_name: Optional[str] = None):
@@ -718,7 +817,7 @@ class ContentManager:
                         caption=tt_caption,
                         as_draft=meta.get("as_draft", False),
                         account_name=account,
-                        sound_mode=meta.get("sound_mode", "favorite"),
+                        sound_mode=meta.get("sound_mode", "none"),
                         tiktok_sound_query=meta.get("sound_query", ""),
                         sound_volume_db=meta.get("sound_db", "-7"),
                         tiktok_product=meta.get("tiktok_product"),
@@ -781,7 +880,7 @@ class ContentManager:
                         title="",
                         as_draft=meta.get("as_draft", False),
                         account_name=account,
-                        sound_mode=meta.get("sound_mode", "favorite"),
+                        sound_mode=meta.get("sound_mode", "none"),
                         tiktok_sound_query=meta.get("sound_query", ""),
                         category_label="Poster",
                         session_id=session_id,
@@ -844,7 +943,7 @@ class ContentManager:
                         title="",
                         as_draft=meta.get("as_draft", False),
                         account_name=account,
-                        sound_mode=meta.get("sound_mode", "favorite"),
+                        sound_mode=meta.get("sound_mode", "none"),
                         tiktok_sound_query=meta.get("sound_query", ""),
                         category_label="Carousel",
                         session_id=session_id,

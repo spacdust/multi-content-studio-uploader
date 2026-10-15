@@ -151,23 +151,39 @@ class TestSchedulerAndRetry(unittest.TestCase):
         mock_list_acc.return_value = [{"name": "TestAcc"}]
         mock_auth.return_value = True
 
-        # Item dijadwalkan 5 hari yang lalu (> 24 jam lampau)
+        from datetime import datetime, timedelta
+        # 1. Item dijadwalkan kemarin (past date)
+        yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        # 2. Item dijadwalkan hari ini tapi terlambat lebih dari 30 menit (2 jam lalu)
+        late_today_str = (datetime.now() - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
+
         mock_scan.return_value = [
             {
-                "item_key": "Video/2026-09-28/vid1.mp4",
+                "item_key": "Video/2026-10-09/vid1.mp4",
                 "name": "vid1.mp4",
                 "category": "Video",
-                "date": "2026-09-28",
+                "date": "2026-10-09",
                 "uploaded_platforms": [],
                 "meta": {
-                    "scheduled_time": "2026-09-28T19:30:00",
+                    "scheduled_time": yesterday_str,
+                    "platforms": ["tiktok"]
+                }
+            },
+            {
+                "item_key": "Video/2026-10-10/vid2.mp4",
+                "name": "vid2.mp4",
+                "category": "Video",
+                "date": "2026-10-10",
+                "uploaded_platforms": [],
+                "meta": {
+                    "scheduled_time": late_today_str,
                     "platforms": ["tiktok"]
                 }
             }
         ]
 
         scheduled = AutoScheduler.get_scheduled_items()
-        # Item lampau yang basi (> 24 jam) tidak dimasukkan ke antrean terjadwal
+        # Item kemarin maupun item yang terlambat > 30 menit tidak boleh masuk antrean aktif
         self.assertEqual(len(scheduled), 0)
 
     @patch("src.auth_manager.get_account_state_file")
@@ -194,5 +210,78 @@ class TestSchedulerAndRetry(unittest.TestCase):
         finally:
             tmp_path.unlink(missing_ok=True)
 
+    @patch("src.scheduler.AccountManager.list_accounts")
+    @patch("src.scheduler.ContentManager.scan_content")
+    @patch("src.scheduler.AuthManager.is_authenticated")
+    def test_scheduler_get_status_rich_upcoming_queue(self, mock_auth, mock_scan, mock_list_acc):
+        from datetime import datetime, timedelta
+        mock_list_acc.return_value = [{"name": "TestAcc"}]
+        mock_auth.return_value = True
+
+        future_str = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
+        mock_scan.return_value = [
+            {
+                "item_key": "Video/2026-10-15/vid1.mp4",
+                "name": "vid1.mp4",
+                "category": "Video",
+                "date": "2026-10-15",
+                "uploaded_platforms": [],
+                "meta": {
+                    "scheduled_time": future_str,
+                    "platforms": ["tiktok", "instagram"],
+                    "custom_caption": "Caption uji coba"
+                }
+            }
+        ]
+
+        status = AutoScheduler.get_status()
+        self.assertEqual(status["total_scheduled_pending"], 1)
+        self.assertEqual(len(status["upcoming_queue"]), 1)
+        queue_item = status["upcoming_queue"][0]
+        self.assertEqual(queue_item["item_name"], "vid1.mp4")
+        self.assertEqual(queue_item["account"], "TestAcc")
+        self.assertEqual(queue_item["date"], "2026-10-15")
+        self.assertEqual(queue_item["remaining_platforms"], ["tiktok", "instagram"])
+        self.assertEqual(queue_item["caption"], "Caption uji coba")
+        self.assertIn("/api/content/media/TestAcc/Video/2026-10-15/vid1.mp4", queue_item["media_url"])
+
+    @patch("src.server.ContentManager.scan_content")
+    @patch("src.server._find_item_meta_json")
+    def test_batch_clear_schedule_single_item(self, mock_find_meta, mock_scan):
+        import json
+        import tempfile
+        from fastapi.testclient import TestClient
+        from src.server import app
+
+        client = TestClient(app)
+        with tempfile.NamedTemporaryFile("w+", delete=False, suffix=".json") as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump({"scheduled_time": "2026-10-15T15:00:00", "custom_caption": "test"}, tmp)
+            tmp.flush()
+
+        mock_find_meta.return_value = tmp_path
+        try:
+            res = client.post("/api/content/batch-clear-schedule", json={
+                "account": "Shift & Co.",
+                "items": [
+                    {
+                        "category": "Video",
+                        "date": "2026-10-15",
+                        "item_name": "video-01.mp4"
+                    }
+                ]
+            })
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            self.assertEqual(data["status"], "success")
+            self.assertEqual(data["cleared_count"], 1)
+
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                cleared_data = json.load(f)
+            self.assertIsNone(cleared_data.get("scheduled_time"))
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
 if __name__ == "__main__":
     unittest.main()
+

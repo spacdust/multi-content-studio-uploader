@@ -6,7 +6,7 @@ export default function TikTokSoundCard({
   currentEdit,
   setEditedItems,
 }) {
-  const soundMode = currentEdit?.soundMode || 'favorite';
+  const soundMode = currentEdit?.soundMode || 'none';
   const defaultDb = selectedItem?.category === 'Video' ? '-7' : '0';
   const soundDbValue = currentEdit?.soundDb !== undefined && currentEdit?.soundDb !== null ? currentEdit.soundDb : defaultDb;
 

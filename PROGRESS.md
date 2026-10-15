@@ -344,12 +344,239 @@ Bot ini dibangun menggunakan **Python**, **Playwright**, **OpenCV/FFmpeg**, **Mu
 - [x] **Unit Testing Lengkap & Terisolasi (`tests/test_settings_models.py`):** Menambahkan 6 unit test baru untuk memvalidasi parser SDK, fallback HTTP, response Gemini format, dan FastAPI endpoints. Total 23/23 unit test berhasil (*100% Passing*).
 - [x] **Rebuild Produksi React:** Asset bundle produksi `frontend/dist` telah di-build ulang menggunakan Vite.
 
+### 🔹 Fase 47: Indikator & Feedback Transparan Pembuatan AI Caption Pasca-Upload
+- [x] **Eliminasi Efek Tiba-Tiba pada Caption Baru:** Mengatasi masalah di mana caption muncul mendadak tanpa informasi bagi pengguna saat media baru diunggah.
+- [x] **Active Auto-Caption Task Tracking (`src/server.py`):** Backend melacak status tugas pembuatan caption di thread latar belakang (`_active_auto_caption_tasks`) dan menyediakannya via atribut `is_generating_caption` pada endpoint `/api/content` dan respons upload `/api/content/upload-media`.
+- [x] **Smart Auto-Select & Immediate Caption State (`useContent.js`):** Konten yang baru diunggah langsung otomatis terpilih di antrean dan ditandai dengan status `generatingCaption`. Polling pintar aktif setiap 2 detik hingga caption selesai dirumuskan.
+- [x] **Visual Banner & Shimmer State di Studio Inspector (`CaptionEditorCard.jsx`):** Menampilkan banner notifikasi animasi elegan `[ ✨ Sedang membuat caption dengan AI... ]` tepat di atas textarea, serta placeholder dinamis `✨ AI sedang menyusun caption & rekomendasi hashtag...`.
+- [x] **Badge Animasi di Antrean Feed (`ContentCard.jsx`):** Kartu konten di feed menampilkan badge header `[ ✨ AI Caption... ]` berkedip halus dan cuplikan teks `Sedang membuat caption dengan AI...` selama proses berlangsung.
+- [x] **Toast Konfirmasi Penyelesaian:** Begitu AI selesai merumuskan caption, sistem memicu notifikasi sukses `✨ Caption AI untuk '...' selesai dibuat!` dan teks caption langsung terisi dengan mulus.
+
+### 🔹 Fase 48: Eliminasi Native File Dialog Facebook & Modern Reel Composer Pipeline
+- [x] **Investigasi Mendalam Bug Window File Picker Native:** Menemukan bahwa tombol `Reel` (`div[aria-label='Reel']`) dan `Foto/video` pada beranda Facebook memicu event file picker browser secara native. Mengklik tombol ini tanpa penanganan Playwright menyebabkan Windows membuka dialog native OS *"Select file to upload"*, yang membekukan Playwright dan menyebabkan proses upload massal video gagal.
+- [x] **Native File Chooser Interceptor (`page.expect_file_chooser`):** Mengganti klik manual langsung dengan context manager Playwright `with page.expect_file_chooser() as fc_info: btn.click(force=True)` lalu menginjeksi file lewat `fc_info.value.set_files(...)`. Dialog native Windows 100% tercegat dan tidak pernah muncul di layar pengguna.
+- [x] **Restrukturisasi Modal Composer Reel Modern:**
+  - Menyesuaikan arsitektur dialog Reel Facebook terbaru yang terdiri dari tahap `Edit > Pengaturan`.
+  - Mengisi deskripsi caption langsung pada tahap awal (`Edit`) di mana kolom *"Deskripsikan reel Anda..."* (`div[role='dialog'] div[role='textbox']`) berada.
+  - Mengklik tombol *Berikutnya* sekali untuk masuk ke tahap `Pengaturan`, mengeliminasi pencarian tombol kedua yang redundan (menghemat waktu tunggu 15 detik).
+  - Menekan tombol *Posting* biru di pojok bawah dialog `Pengaturan` dan memantau konfirmasi penerbitan serta popup dialog lanjutan.
+- [x] **Proteksi Komprehensif Upload Standar (Foto/Poster/Carousel):** Menerapkan interseptor file chooser yang sama pada tombol `Foto/video` dengan fallback pembukaan dialog composer manual via `Apa yang Anda pikirkan`.
+- [x] **Deteksi Sesi Expired Lebih Peka:** Memperluas deteksi sesi Facebook yang kedaluwarsa dengan mendeteksi elemen input password (`input[type='password']`) pada beranda, mencegah bot mencoba upload saat akun belum terautentikasi.
+### 🔹 Fase 49: Fitur Multi-Upload Video & Poster Menjadi Item Reel Terpisah di Antrean
+- [x] **Dukungan Multi-Selection pada Modal Upload (`AddMediaModal.jsx`):**
+  - Input file kategori Video dan Poster kini mendukung atribut `multiple`, memungkinkan pengguna memilih banyak berkas sekaligus (misalnya memilih 5 video bersamaan).
+  - Tampilan dinamis interaktif:
+    - Jika memilih 1 video: menampilkan pratinjau player video mandiri lengkap dengan nama dan ukuran berkas.
+    - Jika memilih banyak video (misalnya 5 file): menyajikan ringkasan kartu hijau `✨ 5 Video Dipilih (akan menjadi 5 Reel terpisah)`, tombol `+ Tambah Lagi`, tombol `Hapus Semua`, serta daftar kartu video terpilih dengan badge penomoran (`#1`, `#2`, dst.), thumbnail, ukuran berkas (MB), dan tombol hapus per-item.
+  - Tombol submit cerdas dan informatif: menampilkan label dinamis `Tambahkan 5 Reel/Video Terpisah ke Antrean`.
+- [x] **Backend Multi-File Ingestion Pipeline (`src/server.py`):**
+  - Endpoint `/api/content/upload-media` diperbarui untuk memproses setiap file yang diunggah secara individual pada kategori `Video` dan `Poster`.
+  - Masing-masing file otomatis diberi penomoran sekuensial yang rapi (`video-YYYY-MM-DD-01.mp4`, `video-YYYY-MM-DD-02.mp4`, dst.) melalui `ContentManager.get_next_item_name`.
+  - Dibuatkan berkas metadata `.json` terpisah untuk setiap item dengan parameter default optimal (`sound_db: "-7"`, target platform `tiktok, instagram, facebook`).
+  - Memicu tugas pembuatan caption AI multimodal latar belakang (`_trigger_background_auto_caption`) untuk masing-masing item secara paralel.
+  - Mengembalikan daftar lengkap `filenames`, `item_keys`, dan total `count` ke frontend.
+- [x] **Sinkronisasi State & Parallel Caption Polling (`useContent.js`):**
+  - Mengelola `selectedMediaFiles` terintegrasi dengan upload pipeline.
+  - Polling cerdas memantau pembuatan caption untuk seluruh item yang baru dibuat hingga selesai dan menampilkan toast konfirmasi.
+
+### 🔹 Fase 50: Reset Total Status Upload Saat Konten Dihapus & Diunggah Ulang
+- [x] **Akar Masalah Teridentifikasi & Tuntas Diperbaiki:**
+  - Sebelumnya, riwayat publikasi item disimpan di `accounts/<account>/upload_history.json`. Ketika sebuah item dihapus di bot via `/api/content/delete`, hanya file fisik media/metadata yang dihapus, sedangkan entri `item_key` di `upload_history.json` tetap tertinggal.
+  - Akibatnya, saat video baru diunggah ke slot nama/tanggal yang sama, status lamanya (`UPLOADED`) terbawa kembali dan bot menolak mengunggah karena menganggap konten sudah terbit di semua platform.
+- [x] **Pembersihan Riwayat Saat Penghapusan (`ContentManager.delete_item`):**
+  - Menambahkan method `remove_item_history(account_name, item_key)` yang menghapus jejak publikasi dari `upload_history.json` dan `queue_order.json`.
+  - Fungsi `delete_item` kini otomatis memanggil `remove_item_history` untuk semua variasi kunci (termasuk normalisasi separator slash dan nama carousel).
+- [x] **Pembersihan Otomatis Saat Unggah Ulang Media (`/api/content/upload-media`):**
+  - Setiap kali file video, poster, atau carousel baru disimpan ke disk, backend langsung memanggil `remove_item_history` untuk kunci item tersebut sehingga berkas baru dijamin 100% berstatus `PENDING` dengan daftar platform terbit kosong.
+- [x] **Auto-Pruning Entri Yatim Piatu pada `scan_content`:**
+  - Saat antrean dipindai (`scan_content`), sistem mendeteksi entri di `upload_history.json` yang berkas fisiknya sudah tidak ada di disk (misal dihapus lewat Windows File Explorer) dan otomatis membersihkannya.
+- [x] **Endpoint & Tombol Manual Reset Status (`/api/content/reset-status`):**
+  - Menambahkan endpoint `POST /api/content/reset-status` untuk mereset status konten kembali ke `PENDING` kapan saja tanpa perlu menghapus berkas media.
+  - Menambahkan tombol interaktif `[ ↺ Reset Status ]` pada banner status publikasi di Studio Inspector (`PublishActionCenter.jsx`) yang aktif saat item memiliki status terbit.
+- [x] **Unit Testing Lengkap & Verifikasi Penuh (`tests/test_reset_upload_status.py`):**
+  - Menguji alur hapus item $\rightarrow$ re-upload berstatus `PENDING`, auto-pruning entri yatim piatu, fungsi `reset_item_status`, endpoint `/api/content/reset-status`, dan upload media baru.
+  - 35/35 unit test passing (100% OK).
+- [x] **Unit & Integration Testing Komprehensif (`tests/test_multi_video_upload.py`):**
+  - Menguji upload 5 video menghasilkan 5 file video dan 5 file metadata JSON terpisah dengan sekuens penomoran baku.
+  - Menguji `ContentManager.scan_content` memuat kelima item secara individual.
+  - Memverifikasi single-upload dan multi-poster tetap berjalan sempurna tanpa regresi.
+  - Seluruh 30 unit test suite lulus 100% (*30/30 OK*).
+- [x] **Rebuild Bundle Frontend:** Asset produksi React Vite telah di-build ulang (`npm run build`).
+
+### 🔹 Fase 51: Pencegahan Ghost Scheduled Spikes & Stricter Due Window pada Auto-Scheduler
+- [x] **Akar Masalah Teridentifikasi & Analisis Kejadian:**
+  - Kemarin (9 Oktober), terdapat 50 video di akun Shift & Co. yang dijadwalkan dan sukses diposting ke Instagram & Facebook. Karena kemarin TikTok belum terhubung, target TikTok belum terunggah dan nilai `scheduled_time` lama tertinggal di metadata `.json`.
+  - Ketika pengguna melakukan login TikTok Shift & Co. hari ini (10 Oktober), `remaining_platforms` mendadak menyertakan TikTok untuk ke-50 video tersebut.
+  - Karena aturan lama `AutoScheduler` menggunakan rentang kedaluwarsa 24 jam (`diff_seconds < -86400`), jadwal kemarin (~21 jam lalu) dianggap **AKTIF & JATUH TEMPO SAAT INI JUGA (`is_due: True`)**, memicu badge navbar `50 Terjadwal` dan membuka jendela Chrome otomatis untuk upload massal.
+- [x] **Logika Toleransi Jadwal Presisi (Stricter Due Window & Past-Date Elimination):**
+  - Jadwal dari tanggal lampau (`sched_dt.date() < now.date()`) atau yang terlambat lebih dari 30 menit (`diff_seconds < -1800`) kini **100% DIANGGAP KEDALUWARSA (EXPIRED)**.
+  - Scheduler hanya mengeksekusi item yang jatuh tempo pada hari ini dengan toleransi maksimal 30 menit (`0 >= diff_seconds >= -1800` & `sched_dt.date() == now.date()`).
+- [x] **Auto-Sanitasi & Pembersihan `scheduled_time` Pasca-Eksekusi:**
+  - Menambahkan method `_clear_item_scheduled_time()` yang otomatis membersihkan `scheduled_time` dari file `.json` metadata setelah konten berhasil dipublikasikan oleh scheduler, maupun saat jadwal lampau terdeteksi kadaluarsa.
+  - Membersihkan 59 sisa jadwal hantu lampau di `Shift & Co.` sehingga antrean terjadwal kembali bersih (`0 Terjadwal`).
+- [x] **Unit Testing Diperbarui (`tests/test_scheduler_retry.py`):**
+  - Menguji jadwal kemarin dan keterlambatan > 30 menit hari ini tidak dimasukkan ke antrean aktif dan tidak memicu eksekusi otomatis. Seluruh 35 unit test lulus 100% (*35/35 OK*).
+
+### 🔹 Fase 52: Switch ON/OFF Platform Penjadwalan & Default Audio Mode "No Sound"
+- [x] **Switch ON/OFF Platform Fleksibel pada Modal Penjadwalan (`MassUploadModal.jsx`):**
+  - Menambahkan kontrol selektif 3 platform (**TikTok Studio**, **Instagram**, dan **Facebook Fanspage**) dengan komponen switch toggle iOS/Tailwind interaktif.
+  - Pengguna dapat bebas memilih mau upload ke platform mana saja (misal hanya TikTok, atau hanya IG + FB).
+  - Terdapat validasi protektif cerdas (*minimal 1 platform harus tetap aktif*) agar antrean tidak kosong tanpa tujuan.
+  - Pilihan platform diteruskan ke API backend `/api/content/batch-schedule` dan tersimpan langsung ke `meta.json` (`platforms: ["tiktok", "instagram", "facebook"]`).
+  - Scheduler dan engine publish secara ketat menghormati filter `platforms` dari metadata sehingga platform yang di-switch OFF tidak akan dibuka maupun diproses oleh browser bot.
+- [x] **Default Mode Audio TikTok ke "No Sound" (`none`):**
+  - Mengubah nilai default mode audio TikTok saat upload video/poster/carousel baru dari yang sebelumnya `"favorite"` menjadi **`"none"` ("No Sound")**.
+  - Panel Studio Inspector (`TikTokSoundCard.jsx`) kini secara default menampilkan opsi segmented **"No Sound"** terpilih.
+  - Backend `ContentManager` dan endpoint FastAPI `/api/content/upload-media` serta `/api/content/caption/save` otomatis menginisialisasi `sound_mode: "none"`.
+  - Jika pengguna tetap ingin menggunakan suara, mereka dapat beralih ke tombol `Favorite` atau `Search Sound` kapan saja di panel inspector.
+- [x] **Pengujian & Unit Testing Komprehensif:**
+  - Dibuat unit test otomatis di `tests/test_platform_switch_and_sound_mode.py`.
+  - Seluruh 38/38 unit test pada test suite lulus 100% (*Ran 38 tests in 3.574s, OK*).
+  - Bundle frontend berhasil dikompilasi ulang dengan Vite (`npm run build`).
+
+### 🔹 Fase 53: Auto-Dismiss Popup "Aktifkan Pemeriksaan Konten Otomatis" di TikTok Studio
+- [x] **Akar Masalah Teridentifikasi & Analisis Kejadian:**
+  - Saat file video selesai di-inject ke TikTok Studio, TikTok menampilkan dialog baru: *"Aktifkan pemeriksaan konten otomatis?"* dengan checkbox *"Pemeriksaan hak cipta musik"* dan tombol *"Aktifkan"* / *"Batal"*.
+  - Di `src/tiktok_uploader.py`, fungsi `dismiss_popups` memiliki proteksi modal konfirmasi posting `is_post_dialog_open` yang sebelumnya mengecek frasa umum `t.includes('hak cipta')` dan `t.includes('proses')`.
+  - Karena popup baru ini memuat kata "hak cipta", `dismiss_popups` salah mengidentifikasinya sebagai modal konfirmasi post akhir ("Post anyway"). Akibatnya, `dismiss_popups` langsung `return` tanpa menutup dialog.
+  - Modal overlay tetap menutupi layar, menghalangi input caption dan tombol Post sehingga bot mengalami stuck.
+- [x] **Solusi & Penanganan Khusus Modal Pemeriksaan Konten:**
+  - Ditambahkan penanganan khusus dialog *"Aktifkan pemeriksaan konten otomatis?"* / *"Turn on automatic content checks"*:
+    1. Mencari tombol primer **"Aktifkan"** (atau "Turn on" / "Enable") dan langsung menekannya untuk mengaktifkan perlindungan resmi TikTok sekaligus menutup dialog.
+    2. Fallback otomatis ke tombol **"Batal"** / **"Cancel"**, tombol icon Close "X", `Escape`, atau pembersihan DOM overlay jika tombol tidak merespon.
+  - Memperbaiki proteksi `is_post_dialog_open` agar **hanya** aktif pada modal konfirmasi posting sesungguhnya yang memuat frasa eksplisit (`post anyway`, `tetap posting`, `posting sekarang`, `post now`) dan secara eksplisit mengecualikan modal pemeriksaan konten otomatis.
+  - Memastikan pemanggilan `self.dismiss_popups(page)` dieksekusi sebelum pengisian caption dan sebelum penekanan tombol Post.
+- [x] **Unit Testing & Verifikasi:**
+  - Dibuat unit test baru di `tests/test_tiktok_content_check_modal.py`.
+  - Seluruh 40/40 unit test pada sistem lulus 100% (*Ran 40 tests in 3.816s, OK*).
+
+- [x] **Fase 54: Perbaikan UX Tombol Master Publish Inspector & Sinkronisasi Status Terbit Selesai**
+  - **Latar Belakang & Investigasi Mendalam:**
+    - Pengguna bertanya: *"aku upload pake tombol ini eror ya? belum di update kah metodenya"* saat menekan tombol master hijau *"Publish to TikTok & Instagram & Facebook"* di panel Studio Inspector.
+    - Berdasarkan hasil audit log sesi (`logs/sessions/pub_1791600926758.json`, `pub_1791600716317.json`, `pub_1791601045919.json`) serta file riwayat `upload_history.json`, ditemukan bahwa video tersebut (`video-2026-10-10-01.mp4` pada akun Shift & Co.) **SUDAH 100% SUKSES TERBIT DI KETIGA PLATFORM**:
+      - TikTok: Sukses terbit pukul 09:56:15 WIB.
+      - Instagram: Sukses terbit pukul 09:53:47 WIB.
+      - Facebook Fanspage: Sukses terbit pukul 09:58:16 WIB.
+    - Pada backend (`src/content_manager.py`), bot sengaja melewati (*skip*) proses upload jika seluruh platform target sudah terbit guna melindungi pengguna agar tidak terjadi duplikasi video di feed.
+    - Namun pada frontend sebelumnya, tombol master tetap berwarna hijau aktif dan bertuliskan *"Publish to TikTok & Instagram & Facebook"*, sehingga ketika diklik tidak ada browser yang dibuka dan membuat pengguna mengira tombol tersebut error atau metodenya belum diperbarui.
+  - **Solusi & Peningkatan UX yang Diimplementasikan:**
+    1. **Teks & Status Tombol Master Dinamis:**
+       - Menghitung sisa platform yang belum terbit (`remainingPlatforms`) terhadap platform yang terhubung aktif di akun saat ini (`connectedPlatforms`).
+       - **Jika Semua Sudah Terbit (`isAllConnectedUploaded`):**
+         - Tombol master berganti tampilan menjadi **Completed State**: *"Semua Platform Sudah Terbit (Selesai)"* dengan ikon `CheckCircle2` hijau emerald.
+         - Disediakan tombol aksi 1-klik di bawahnya: **`[Reset & Upload Ulang Semua Platform]`** (ikon `RotateCcw` amber) yang otomatis mereset riwayat dan memicu upload baru ke semua platform tanpa kebingungan.
+         - Catatan keterangan informatif: *"✓ Konten ini sudah terposting di seluruh platform. Bot otomatis melewatinya agar tidak duplikat."*
+       - **Jika Terbit Parsial (e.g. TikTok & IG sudah, FB belum):**
+         - Tombol master secara transparan hanya menampilkan platform yang tersisa: *"Lanjutkan Publish ke Facebook"* (bukan lagi menampilkan semua).
+         - Catatan keterangan: *"ℹ️ Platform yang sudah terbit (TikTok, Instagram) otomatis dilewati."*
+       - **Jika Belum Terbit Sama Sekali:**
+         - Tombol menampilkan *"Publish to TikTok & Instagram & Facebook"*.
+    2. **Sinkronisasi Hook `useContent.js`:**
+       - Variabel `publishBtnText` kini reaktif memperhitungkan status `uploaded_platforms` dari item yang sedang dipilih di inspector.
+    3. **Verifikasi:**
+       - Bundle frontend berhasil dibuild ulang dengan `npm run build` (vite v6.4.3).
+       - Seluruh 40 unit test regression lulus 100% (*Ran 40 tests in 11.249s, OK*).
+
+- [x] **Fase 55: Pembebasan Tombol Upload Massal untuk Konten Parsial & Tanggal Lampau**
+  - **Latar Belakang Masalah:**
+    - Pengguna meminta: *"tolong fitur upload massal bisa dipake lagi, jangan disable soalnya aku ingin upload tiktok yg tanggal kemarin"*.
+    - Pada konten tanggal kemarin (`2026-10-09`), seluruh 50 video sudah terbit di Instagram dan Facebook, tetapi **belum pernah diupload ke TikTok** (`uploaded_platforms: ['instagram', 'facebook']`).
+    - Namun, tombol *"Upload Massal"* di `FeedFilterBar.jsx` sebelumnya menjadi `disabled` (berwarna abu-abu redup dan tidak bisa diklik) karena sistem menghitung `unuploadedSortedItems` secara kaku dengan syarat `uploaded.length === 0`. Konten yang sudah terbit di salah satu platform langsung diabaikan dari antrean massal.
+  - **Perbaikan yang Diterapkan:**
+    1. **Logika Kelayakan Upload Massal yang Akurat (`useContent.js`):**
+       - Konten kini dianggap pending jika masih ada platform terhubung aktif yang belum diupload (misalnya TikTok belum diupload meskipun IG dan FB sudah).
+       - `unuploadedSortedItems` mendeteksi kebutuhan upload per-platform (`tiktokNeeded`, `instagramNeeded`, `facebookNeeded`).
+       - `massUploadQueue` memprioritaskan item pending, dan otomatis fallback ke seluruh item terfilter (`sortedItems`) jika pengguna ingin menjadwalkan atau memposting ulang konten yang sudah terbit.
+    2. **Pembebasan Tombol Upload Massal (`FeedFilterBar.jsx` & `App.jsx`):**
+       - Tombol *"Upload Massal"* tidak lagi disable selama terdapat konten di tampilan feed (`totalItemsCount > 0` atau `unuploadedCount > 0`).
+       - Counter badge menampilkan jumlah item yang siap diproses.
+    3. **Filter Status yang Selaras:**
+       - Filter `PENDING` di toolbar kini menampilkan seluruh konten yang belum 100% selesai di semua platform aktif (tidak lagi menyembunyikan konten terbit parsial).
+    4. **Verifikasi & Build:**
+       - Bundle frontend berhasil dikompilasi via `npm run build` (`vite v6.4.3`).
+       - Seluruh 40/40 unit test lulus (`Ran 40 tests in 9.997s, OK`).
+
+- [x] **Fase 56: Perbaikan Bug Switch Platform yang Reset Sendiri Menjadi ON (Modal State Stability)**
+  - **Latar Belakang & Gejala:**
+    - Pengguna melaporkan: *"loh kok switch nya eror, udah ku matiin, malah on lagi"* sambil melampirkan screenshot selector 3 platform pada modal massal.
+    - Ketika switch Instagram atau Facebook dimatikan oleh pengguna, dalam hitungan 1-2 detik switch tersebut tiba-tiba kembali menyala (*ON*) dengan sendirinya.
+  - **Investigasi & Akar Masalah:**
+    - Pada `MassUploadModal.jsx`, terdapat `useEffect` sinkronisasi `[isOpen, activePlatforms]` yang mengeksekusi `setSelectedPlatforms(supported)` (semua 3 platform aktif).
+    - Pada `useContent.js`, array `activePlatforms` sebelumnya didefinisikan sebagai array baru pada setiap siklus render (bukan `useMemo`).
+    - Akibatnya, setiap kali background timer polling (interval 1.5s - 5s) atau event focus berjalan di dashboard, referensi array `activePlatforms` berubah -> memicu `useEffect` di modal -> menimpa state `selectedPlatforms` kembali ke default 3 platform menyala.
+  - **Solusi yang Diterapkan:**
+    1. **Isolasi Inisialisasi Modal via Ref (`MassUploadModal.jsx`):**
+       - Menambahkan `prevIsOpenRef` agar inisialisasi platform dan default schedule **HANYA berjalan tepat 1x saat modal pertama kali bertransisi dari closed ke open** (`isOpen && !prevIsOpenRef.current`).
+       - Selama modal terbuka, perubahan state switch murni dikendalikan oleh interaksi pengguna tanpa risiko tertimpa polling latar belakang.
+    2. **Memoize `activePlatforms` (`useContent.js`):**
+       - Membungkus komputasi `activePlatforms` dengan `useMemo` berbasis dependensi status akun (`tiktok_active`, `instagram_active`, `facebook_active`).
+    3. **Verifikasi & Build:**
+       - Bundle frontend berhasil dikompilasi via `npm run build` (`vite v6.4.3`).
+       - Seluruh 40/40 unit test lulus (`Ran 40 tests in 4.286s, OK`).
+
+- [x] **Fase 57: Penanganan & Panduan Keranjang Kuning Kosong (Toko Saya vs Produk Etalase)**
+  - **Latar Belakang & Gejala:**
+    - Pengguna bertanya: *"kira kira kenapa ya, pas di tools ada list keranjang kuning, pas proses upload malah ga muncul"* sambil melampirkan 2 screenshot:
+      1. Modal TikTok Studio: *"Tidak ada produk di etalase Anda. Buka aplikasi TikTok > Profil > TikTok Shop untuk menambahkan produk ke etalase Anda."*
+      2. Dashboard Studio: Produk terdaftar dengan status *"Toko Saya"*.
+  - **Analisis Mendalam & Akar Masalah:**
+    - Di **Dashboard Tools**, API backend (`/api/tiktok/products`) memanggil endpoint Seller Center (`streamer_desktop/selection/search`) yang membaca database produk toko secara langsung (*Toko Saya*).
+    - Di **TikTok Studio Web**, antarmuka upload hanya membaca produk yang sudah dimasukkan ke dalam **"Produk etalase" (Showcase)** profil kreator.
+    - Pada akun TikTok kreator/pemasaran, produk dari toko tidak otomatis tampil di etalase profil jika belum ditambahkan secara manual melalui aplikasi TikTok di HP (*Profil > TikTok Shop > Tambah Produk ke Etalase*).
+  - **Peningkatan Bot (`src/tiktok_uploader.py`):**
+    - Menambahkan deteksi otomatis teks *"Tidak ada produk di etalase Anda"* / *"No products in your showcase"*.
+    - Memberikan log peringatan jelas ke `PublishTracker`.
+    - Otomatis menekan tombol *"Batal"* pada modal kosong agar proses upload video tidak stuck atau terhalang dialog di layar.
+  - **Verifikasi:**
+    - Seluruh 40/40 unit test lulus 100% (`Ran 40 tests in 2.797s, OK`).
+
+- [x] **Fase 58: Manajemen Antrean Jadwal Terbuka & Pembatalan Jadwal 1-Klik**
+  - **Pembersihan Jadwal Aktif Shift & Co.:**
+    - Sebanyak 10 video pada akun Shift & Co. (`video-2026-10-15-01.mp4` s/d `video-2026-10-15-10.mp4`) berhasil dihapus jadwalnya secara instan (`scheduled_time` disetel ke `None`). Total antrean scheduler kembali bersih (0 pending).
+  - **Interaktivitas Badge Jadwal Navbar (`Navbar.jsx`):**
+    - Pill `[ 📅 X Terjadwal ]` di header studio kini interaktif (*clickable*) dengan kursor pointer dan efek hover transisi halus.
+    - Saat ada jadwal aktif, tampil warna hijau emerald lengkap dengan ping animasi live dan counter. Saat 0 jadwal, tampil dalam format gelap zinc `[ 📅 0 Terjadwal ]` yang tetap dapat diklik kapan saja untuk membuka modal antrean.
+  - **Modal Detail Antrean & Pembatalan (`ScheduledQueueModal.jsx`):**
+    - Menampilkan seluruh postingan yang sedang mengantre rilis otomatis lengkap dengan thumbnail/preview, nama file, tanggal folder, waktu tayang WIB, hitung mundur relatif (*countdown*), dan platform tujuan (TikTok, Instagram, Facebook).
+    - Filter dropdown/pill akun (*Semua Akun*, *Shift & Co.*, dll) serta kotak pencarian instan (*search query*).
+    - **Aksi Batal Per-Item:** Tombol *"Batalkan Jadwal"* pada tiap baris konten untuk membatalkan jadwal secara spesifik tanpa mengganggu postingan lain.
+    - **Aksi Batal Massal:** Tombol *"Batalkan Semua Jadwal"* di footer modal yang dilengkapi dialog konfirmasi aman (*safety confirmation*) untuk mereset seluruh jadwal sekaligus.
+  - **Backend & AutoScheduler API Enhancements:**
+    - Endpoint `/api/content/batch-clear-schedule` disempurnakan untuk mendukung pembatalan per item berbasis akun masing-masing serta pembersihan massal `account = "all"`.
+    - Endpoint `/api/scheduler/status` (`AutoScheduler.get_status()`) diperkaya untuk mengembalikan properti queue mendalam (`item_key`, `date`, `remaining_platforms`, `media_url`, dan preview `caption`) tanpa batasan kuota 10 item.
+  - **Verifikasi & Kualitas Kode:**
+    - Penambahan 2 unit test baru di `tests/test_scheduler_retry.py` (`test_scheduler_get_status_rich_upcoming_queue` dan `test_batch_clear_schedule_single_item`).
+    - Seluruh 42 unit test lulus 100% (`Ran 42 tests in 3.573s, OK`).
+    - Bundle frontend produksi Vite berhasil dikompilasi ulang (`npm run build`).
+
+- [x] **Fase 59: Pencarian Presisi & Smart Multi-Criteria Matching Keranjang Kuning TikTok**
+  - **Latar Belakang & Gejala:**
+    - Pengguna bertanya: *"aku kan memilih varian ini, kenapa pas pemilihan keranjang kuning dia tidak search yg sama persisi judulnya, jadinya ada paket serupa 2 botol yg kepilih (salah)"*.
+  - **Akar Masalah Teridentifikasi:**
+    1. *Pemotongan Keyword Terlalu Pendek:* Logika sebelumnya memakai `prod_title.split("-")[0].strip()`. Pada judul produk Shift & Co. (`Inspired by Danhil Blu - Shift & CO. Parfum...`), ini memotong kata kunci menjadi hanya `"Inspired by Danhil Blu"`, membuang identitas merek dan penjelas varian.
+    2. *Ketiadaan Pencocokan Baris & Fallback Buta:* Pencocokan baris sebelumnya mencari teks `prod_id`. Karena TikTok Studio tidak menampilkan numeric ID produk di teks baris antarmuka, pencarian ID selalu nihil dan bot langsung jatuh ke fallback buta: `radio = page.locator(".TUXRadio").first` (memilih baris radio pertama di hasil pencarian). Jika produk urutan pertama adalah "Paket 2 Botol", paket 2 botol itulah yang salah terpilih.
+  - **Solusi & Peningkatan Bot (`src/tiktok_uploader.py`):**
+    1. *Pencarian Judul Spesifik:* Kata kunci pencarian kini menggunakan judul spesifik hingga 60 karakter di batas kata terdekat (`clean_title[:60]`) tanpa memotong di tanda `-`. Jika pencarian panjang tidak ada hasil, bot memiliki fallback otomatis ke varian utama.
+    2. *Smart Multi-Criteria Evaluator:* Menambahkan algoritma pembobotan cerdas (*scoring*) di browser context untuk mengevaluasi seluruh baris radio produk:
+       - **Kesesuaian Harga (+400 poin):** Mencocokkan `format_price` (misal Rp40.500). Paket 2 botol yang harganya Rp75.000/Rp80.000 otomatis tersingkir.
+       - **Kesesuaian Gambar Cover (+800 poin):** Mencocokkan URL hash gambar sampul produk.
+       - **Kesesuaian Kata Kunci Judul (+500 poin & 25-char prefix +300 poin):** Menghitung persentase overlap kata penting antara judul target dan teks baris.
+       - **Negative Variant Penalty (-900 poin):** Jika target adalah 1 botol tetapi baris memuat teks "2 botol" / "paket 2" / "bundle 2" / "isi 2", baris tersebut mendapat penalti -900 poin sehingga mustahil terpilih secara keliru.
+  - **Verifikasi:**
+    - Dibuat unit test baru di `tests/test_tiktok_content_check_modal.py` (`test_apply_tiktok_product_link_smart_selection`).
+    - Seluruh 43/43 unit test lulus 100% (`Ran 43 tests in 3.407s, OK`).
+
 ---
 
-## 📊 Tabel Matriks Fitur & Status Terkini (v1.3)
+## 📊 Tabel Matriks Fitur & Status Terkini (v1.4)
 
 | Fitur / Komponen | Status | Keterangan |
 | :--- | :---: | :--- |
+| **Switch Platform Jadwal (TikTok/IG/FB)** | ✅ **Stabil (v1.4)** | Pilih target platform bebas dengan switch toggle ON/OFF pada modal penjadwalan |
+| **Default Audio Mode "No Sound"** | ✅ **Stabil (v1.4)** | Default sound mode TikTok disetel ke "No Sound" (`none`) saat upload konten baru |
+| **Multi-Video Upload (Separate Reels)** | ✅ **Stabil (v1.3)** | Pilih banyak video sekaligus (misal 5 file), otomatis menjadi 5 Reel terpisah |
+| **Native File Chooser Interceptor** | ✅ **Stabil (v1.3)** | Cegat native file dialog OS Windows pada Facebook Reel & Post |
+| **Transparan Auto-Caption Feedback** | ✅ **Stabil (v1.3)** | Indikator live banner & badge saat AI sedang menyusun caption pasca-upload |
 | **Auto-Detect Model AI Dropdown** | ✅ **Stabil (v1.3)** | Deteksi otomatis model dari endpoint (OpenAI/Gemini/Ollama) & pemilih dropdown |
 | **Robust Multi-Platform Scheduler** | ✅ **Stabil (v1.3)** | 0 platform tertinggal, sinkronisasi state disk, & auto-skip terbit |
 | **Anti-Infinite-Loop & Cooldown Engine** | ✅ **Stabil (v1.3)** | Cooldown 15m saat gagal, max 3x retry, cegah Chrome looping |

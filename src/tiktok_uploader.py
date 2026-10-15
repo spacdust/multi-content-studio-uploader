@@ -63,6 +63,78 @@ class TikTokUploader:
 
     def dismiss_popups(self, page, target=None):
         """Dismiss all common TikTok guide tours, coachmarks, tooltips, cookie dialogs, and announcement modals."""
+        # 0. Penanganan Khusus: Modal "Aktifkan pemeriksaan konten otomatis?" / "Turn on automatic content checks?"
+        try:
+            content_check_modal = page.locator("div[role='dialog'], div[class*='TUXModal'], div[class*='modal'], div.common-modal").filter(
+                has_text=re.compile(r"(pemeriksaan konten|content check|aktifkan pemeriksaan|turn on automatic|hak cipta musik)", re.I)
+            ).first
+            if content_check_modal.count() > 0 and content_check_modal.is_visible():
+                console.print("[bold yellow][TikTok Popup] Terdeteksi modal 'Aktifkan pemeriksaan konten otomatis?'. Menutup modal...[/bold yellow]")
+                # A. Coba klik tombol primer "Aktifkan" / "Turn on"
+                btn_aktif = content_check_modal.locator("button, div[role='button']").filter(
+                    has_text=re.compile(r"^(Aktifkan|Turn on|Enable)$", re.I)
+                ).first
+                if btn_aktif.count() > 0 and btn_aktif.is_visible():
+                    console.print("[bold green][TikTok Popup] Mengklik tombol 'Aktifkan'...[/bold green]")
+                    btn_aktif.click(force=True)
+                    page.wait_for_timeout(1000)
+                else:
+                    # B. Coba tombol "Batal" / "Cancel"
+                    btn_batal = content_check_modal.locator("button, div[role='button']").filter(
+                        has_text=re.compile(r"^(Batal|Cancel)$", re.I)
+                    ).first
+                    if btn_batal.count() > 0 and btn_batal.is_visible():
+                        console.print("[bold green][TikTok Popup] Mengklik tombol 'Batal'...[/bold green]")
+                        btn_batal.click(force=True)
+                        page.wait_for_timeout(1000)
+                    else:
+                        # C. Coba icon close X
+                        close_btn = content_check_modal.locator("button[aria-label*='close' i], [class*='close' i], svg").first
+                        if close_btn.count() > 0 and close_btn.is_visible():
+                            console.print("[bold green][TikTok Popup] Mengklik icon Close X...[/bold green]")
+                            close_btn.click(force=True)
+                            page.wait_for_timeout(1000)
+                        else:
+                            page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+        try:
+            page.evaluate("""
+                () => {
+                    const dialogs = document.querySelectorAll("div[role='dialog'], div[class*='modal'], div[class*='Modal'], div[class*='TUXModal']");
+                    for (const d of dialogs) {
+                        const t = (d.innerText || '').toLowerCase();
+                        if (
+                            t.includes('pemeriksaan konten') ||
+                            t.includes('content check') ||
+                            t.includes('aktifkan pemeriksaan') ||
+                            t.includes('turn on automatic') ||
+                            t.includes('hak cipta musik')
+                        ) {
+                            const buttons = Array.from(d.querySelectorAll("button, div[role='button']"));
+                            const btn = buttons.find(b => {
+                                const txt = (b.innerText || '').trim().toLowerCase();
+                                return txt === 'aktifkan' || txt === 'turn on' || txt === 'enable' || txt === 'batal' || txt === 'cancel';
+                            });
+                            if (btn) {
+                                btn.click();
+                                return;
+                            }
+                            const closeX = d.querySelector("button[aria-label*='close'], [class*='close'], svg");
+                            if (closeX) {
+                                closeX.closest('button, div[role="button"]')?.click() || closeX.click();
+                                return;
+                            }
+                            d.remove();
+                            document.querySelectorAll('.TUXModal-overlay, [class*="overlay"], [class*="backdrop"]').forEach(el => el.remove());
+                        }
+                    }
+                }
+            """)
+        except Exception:
+            pass
+
         # Proteksi: Jangan dismiss jika sedang tampil modal konfirmasi post (misal 'Video sedang diproses' / 'Post anyway')
         try:
             is_post_dialog_open = page.evaluate("""
@@ -70,14 +142,26 @@ class TikTokUploader:
                     const dialogs = document.querySelectorAll("div[role='dialog'], div[class*='modal'], div[class*='Modal'], div[class*='TUXModal']");
                     for (const d of dialogs) {
                         const t = (d.innerText || '').toLowerCase();
+                        // Abaikan modal pemeriksaan konten otomatis
                         if (
-                            t.includes('proses') ||
-                            t.includes('process') ||
-                            t.includes('hak cipta') ||
-                            t.includes('copyright') ||
-                            t.includes('post anyway') ||
-                            t.includes('tetap posting')
+                            t.includes('aktifkan pemeriksaan') ||
+                            t.includes('turn on automatic') ||
+                            t.includes('pemeriksaan konten') ||
+                            t.includes('content check')
                         ) {
+                            continue;
+                        }
+                        const hasPostConfirm = (
+                            t.includes('post anyway') ||
+                            t.includes('tetap posting') ||
+                            t.includes('posting sekarang') ||
+                            t.includes('post now') ||
+                            t.includes('lanjutkan posting') ||
+                            t.includes('continue to post') ||
+                            (t.includes('masih diproses') && t.includes('posting')) ||
+                            (t.includes('still being processed') && t.includes('post'))
+                        );
+                        if (hasPostConfirm) {
                             return true;
                         }
                     }
@@ -196,8 +280,8 @@ class TikTokUploader:
         ]
 
         high_priority_patterns = [
-            re.compile(r"^(Post anyway|Tetap posting|Posting sekarang|Post now|Continue to post|Lanjutkan posting|Tetap unggah|Posting tetap)$", re.I),
-            re.compile(r"(post anyway|tetap posting|posting sekarang|post now|lanjutkan posting|tetap unggah)", re.I)
+            re.compile(r"^(Post anyway|Tetap posting|Posting sekarang|Post now|Continue to post|Lanjutkan posting|Tetap unggah|Posting tetap|Aktifkan|Turn on|Enable)$", re.I),
+            re.compile(r"(post anyway|tetap posting|posting sekarang|post now|lanjutkan posting|tetap unggah|aktifkan|turn on)", re.I)
         ]
         fallback_confirm_patterns = [
             re.compile(r"^(Post|Posting|Unggah|Lanjutkan|Continue|Confirm|Konfirmasi|OK|Mengerti)$", re.I)
@@ -640,37 +724,188 @@ class TikTokUploader:
                 page.wait_for_timeout(4000)
 
             # 3. Cari dan pilih produk di modal
+            # Buat kata kunci pencarian yang presisi dari judul produk (hindari memotong di tanda '-')
+            format_price = str(tiktok_product.get("format_price") or "").strip()
+            cover_url = str(tiktok_product.get("cover_url") or "").strip()
+
+            clean_title = re.sub(r'[\r\n\t]+', ' ', prod_title).strip()
+            # Ambil judul spesifik hingga 60 karakter di batas kata terdekat agar tidak terpotong sembarangan
+            if len(clean_title) <= 60:
+                search_term = clean_title
+            else:
+                truncated = clean_title[:60]
+                last_space = truncated.rfind(' ')
+                search_term = truncated[:last_space].strip() if last_space > 20 else truncated.strip()
+
             search_input = page.locator("input[class*='TUXTextInputCore-input'], input[placeholder*='Cari produk'], input[placeholder*='Search products']").first
             if search_input.count() > 0:
-                search_term = prod_title.split("-")[0].strip() if "-" in prod_title else prod_title[:20].strip()
-                if search_term:
-                    console.print(f"[cyan][TikTok Shop] Mencari produk dengan kata kunci: '{search_term}'...[/cyan]")
-                    search_input.click()
-                    search_input.fill(search_term)
-                    page.wait_for_timeout(400)
-                    search_input.press("Enter")
-                    page.wait_for_timeout(3000)
+                search_input.click()
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Backspace")
+                page.wait_for_timeout(200)
 
-            # Cari radio button produk
+                console.print(f"[cyan][TikTok Shop] Mencari produk dengan kata kunci: '{search_term}'...[/cyan]")
+                search_input.fill(search_term)
+                page.wait_for_timeout(400)
+                search_input.press("Enter")
+                page.wait_for_timeout(3000)
+
+                # Jika tidak ada produk ditemukan dengan kata kunci panjang, coba fallback kata kunci varian utama
+                empty_msg = page.locator("text='Tidak ada produk', text='No products'").first
+                if empty_msg.count() > 0 and "-" in prod_title:
+                    fallback_term = prod_title.split("-")[0].strip()
+                    if fallback_term and fallback_term.lower() != search_term.lower():
+                        console.print(f"[dim yellow][TikTok Shop] Kata kunci panjang tidak ada hasil, fallback ke: '{fallback_term}'...[/dim yellow]")
+                        search_input.click()
+                        page.keyboard.press("Control+A")
+                        page.keyboard.press("Backspace")
+                        page.wait_for_timeout(200)
+                        search_input.fill(fallback_term)
+                        page.wait_for_timeout(400)
+                        search_input.press("Enter")
+                        page.wait_for_timeout(3000)
+
+            # Cari radio button produk dengan pencocokan cerdas multi-kriteria:
+            # - Product ID match (attribute / data-id / text)
+            # - Cover image hash match
+            # - Kesesuaian harga (format_price e.g. Rp40.500)
+            # - Kesesuaian kata kunci judul
+            # - Negative variant penalty (mencegah salah memilih paket 2 botol jika target 1 botol)
+            eval_result = page.evaluate(
+                """({ prod_id, prod_title, format_price, cover_url }) => {
+                    const radios = Array.from(document.querySelectorAll('.TUXRadio, input[type="radio"]'));
+                    if (!radios.length) return { status: 'no_radios' };
+
+                    const targetTitle = (prod_title || '').toLowerCase();
+                    const targetId = (prod_id || '').trim();
+                    const cleanTargetPrice = (format_price || '').replace(/[^0-9]/g, '');
+                    const coverHash = cover_url ? (cover_url.split('?')[0].split('/').pop() || '') : '';
+
+                    const targetHas2Botol = targetTitle.includes('2 botol') || targetTitle.includes('paket 2') || targetTitle.includes('bundle 2') || targetTitle.includes('isi 2');
+
+                    let bestScore = -99999;
+                    let bestIndex = -1;
+                    let bestRowText = '';
+
+                    radios.forEach((radio, idx) => {
+                        const row = radio.closest('tr') || 
+                                    radio.closest('div[role="row"]') || 
+                                    radio.closest('div[class*="table-row"]') || 
+                                    radio.closest('div[class*="product-item"]') || 
+                                    radio.closest('li') || 
+                                    radio.parentElement?.parentElement?.parentElement || 
+                                    radio.parentElement;
+
+                        if (!row) return;
+
+                        const rowText = (row.innerText || '').toLowerCase();
+                        const rowHtml = (row.innerHTML || '').toLowerCase();
+                        let score = 0;
+
+                        // 1. Product ID match di attribute atau HTML
+                        if (targetId && (rowHtml.includes(targetId) || row.getAttribute('data-id') === targetId || row.getAttribute('data-product-id') === targetId)) {
+                            score += 1000;
+                        }
+
+                        // 2. Cover image URL hash match
+                        if (coverHash && coverHash.length > 8 && rowHtml.includes(coverHash.toLowerCase())) {
+                            score += 800;
+                        }
+
+                        // 3. Kesesuaian Harga (Price Match)
+                        if (cleanTargetPrice && cleanTargetPrice.length >= 4) {
+                            const rowCleanPrice = rowText.replace(/[^0-9]/g, '');
+                            if (rowText.includes(format_price.toLowerCase()) || rowCleanPrice.includes(cleanTargetPrice)) {
+                                score += 400;
+                            }
+                        }
+
+                        // 4. Kesesuaian Judul (Title Keyword Overlap)
+                        const targetWords = targetTitle
+                            .replace(/[^a-z0-9]/g, ' ')
+                            .split(/\s+/)
+                            .filter(w => w.length >= 3 && !['dan', 'yang', 'untuk', 'dengan', 'dari', 'shift', 'parfum', 'aroma'].includes(w));
+                        
+                        let matchedWordsCount = 0;
+                        targetWords.forEach(w => {
+                            if (rowText.includes(w)) matchedWordsCount++;
+                        });
+
+                        if (targetWords.length > 0) {
+                            score += Math.round((matchedWordsCount / targetWords.length) * 500);
+                        }
+
+                        // 25 Karakter awal judul
+                        const first25 = targetTitle.slice(0, 25).trim();
+                        if (first25.length >= 10 && rowText.includes(first25)) {
+                            score += 300;
+                        }
+
+                        // 5. NEGATIVE VARIANT PENALTY (Proteksi Anti-Paket Salah)
+                        const rowHas2Botol = rowText.includes('2 botol') || rowText.includes('paket 2') || rowText.includes('bundle 2') || rowText.includes('isi 2') || rowText.includes('2 pcs');
+                        if (!targetHas2Botol && rowHas2Botol) {
+                            score -= 900;
+                        } else if (targetHas2Botol && !rowHas2Botol) {
+                            score -= 900;
+                        }
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestIndex = idx;
+                            bestRowText = rowText.replace(/\s+/g, ' ').slice(0, 100);
+                        }
+                    });
+
+                    return {
+                        status: 'ok',
+                        bestIndex,
+                        bestScore,
+                        bestRowText,
+                        totalCandidates: radios.length
+                    };
+                }""",
+                {
+                    "prod_id": prod_id,
+                    "prod_title": prod_title,
+                    "format_price": format_price,
+                    "cover_url": cover_url
+                }
+            )
+
             radio_selected = False
-            if prod_id:
+            if eval_result and eval_result.get("status") == "ok" and eval_result.get("bestIndex", -1) >= 0:
+                best_idx = eval_result["bestIndex"]
+                best_score = eval_result.get("bestScore", 0)
+                best_text = eval_result.get("bestRowText", "")
+                console.print(f"[cyan][TikTok Shop] Produk cocok terpilih (Indeks {best_idx}, Skor {best_score}): '{best_text}'...[/cyan]")
                 try:
-                    target_row_radio = page.locator(f"tr:has-text('{prod_id}') .TUXRadio, div:has-text('{prod_id}') .TUXRadio").first
-                    if target_row_radio.count() > 0:
-                        target_row_radio.click(force=True)
-                        radio_selected = True
-                except Exception:
-                    pass
+                    radio = page.locator(".TUXRadio, input[type='radio']").nth(best_idx)
+                    radio.click(force=True)
+                    radio_selected = True
+                except Exception as ex:
+                    console.print(f"[yellow][TikTok Shop] Gagal klik radio index {best_idx}: {ex}[/yellow]")
 
             if not radio_selected:
+                # Fallback jika evaluasi JS tidak menemukan kecocokan
                 radio = page.locator(".TUXRadio").first
                 if radio.count() > 0:
-                    console.print("[cyan][TikTok Shop] Memilih radio produk pertama di daftar...[/cyan]")
+                    console.print("[yellow][TikTok Shop] Fallback memilih radio produk pertama di daftar...[/yellow]")
                     radio.click(force=True)
                     radio_selected = True
 
             if not radio_selected:
-                console.print("[dim yellow][TikTok Shop] Gagal memilih produk di modal.[/dim yellow]")
+                empty_msg = page.locator("text='Tidak ada produk di etalase Anda', text='No products in your showcase', text='Belum ada produk'").first
+                if empty_msg.count() > 0:
+                    console.print("[bold yellow][TikTok Shop Warning] Etalase TikTok masih kosong! Buka aplikasi TikTok di HP > Profil > TikTok Shop > Tambah produk ke etalase.[/bold yellow]")
+                    PublishTracker.log(session_id, "tiktok", "⚠️ Etalase TikTok masih kosong. Buka aplikasi TikTok (HP) > Profil > TikTok Shop > Tambah produk ke etalase agar keranjang kuning bisa ditautkan.", "warning")
+                else:
+                    console.print("[dim yellow][TikTok Shop] Gagal memilih produk di modal.[/dim yellow]")
+                
+                # Tutup modal dengan klik Batal agar tidak memblokir tombol posting video di layar
+                batal_btn = page.locator("button:has-text('Batal'), button:has-text('Cancel')").first
+                if batal_btn.count() > 0:
+                    batal_btn.click(force=True)
+                    page.wait_for_timeout(1000)
                 return False
 
             page.wait_for_timeout(1000)
@@ -683,6 +918,10 @@ class TikTokUploader:
                 page.wait_for_timeout(2500)
             else:
                 console.print("[dim yellow][TikTok Shop] Tombol 'Berikutnya' masih disabled.[/dim yellow]")
+                batal_btn = page.locator("button:has-text('Batal'), button:has-text('Cancel')").first
+                if batal_btn.count() > 0:
+                    batal_btn.click(force=True)
+                    page.wait_for_timeout(1000)
                 return False
 
             # 5. Ketik custom product name (maksimal 30 karakter)
@@ -852,6 +1091,7 @@ class TikTokUploader:
                 self.dismiss_popups(page)
 
                 # 5. Input Caption & Hashtags
+                self.dismiss_popups(page)
                 if sanitized_caption:
                     console.print("[cyan]Mengisi caption dan hashtag...[/cyan]")
                     PublishTracker.update_step(session_id, "tiktok", "Mengisi caption & hashtag...", 80, "Mengisi teks caption dan hashtag terverifikasi", "step")

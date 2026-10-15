@@ -12,6 +12,7 @@ export default function ContentFeedList({
   onToast,
   onMoveItem,
   onDragReorder,
+  generatingCaption,
 }) {
   const [draggedKey, setDraggedKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
@@ -60,6 +61,7 @@ export default function ContentFeedList({
           index={index}
           totalItems={items.length}
           isSelected={item.item_key === selectedItemKey}
+          isGeneratingCaption={generatingCaption === item.item_key || Boolean(item.is_generating_caption)}
           onSelect={onSelectItem}
           onDeleteClick={onDeleteClick}
           onToast={onToast}

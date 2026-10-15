@@ -18,6 +18,7 @@ export default function Navbar({
   setTestResult,
   showToast,
   schedulerStatus,
+  onOpenScheduledQueue,
 }) {
   return (
     <header className="border-b border-zinc-800/80 bg-[#09090b]/80 backdrop-blur-md sticky top-0 z-30 px-6 py-3.5">
@@ -43,26 +44,40 @@ export default function Navbar({
         {/* Account Selector & Settings */}
         <div className="flex items-center gap-2.5">
           {/* Live Auto-Scheduler Indicator */}
-          {schedulerStatus && schedulerStatus.total_scheduled_pending > 0 && (
-            <div
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-xs shadow-xs"
+          {schedulerStatus && schedulerStatus.total_scheduled_pending > 0 ? (
+            <button
+              type="button"
+              onClick={() => onOpenScheduledQueue && onOpenScheduledQueue()}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 hover:border-emerald-700/80 text-xs shadow-xs transition cursor-pointer group focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
               title={
                 schedulerStatus.next_job
-                  ? `Jadwal Berikutnya: ${schedulerStatus.next_job.item_name} (${schedulerStatus.next_job.scheduled_time}) - ${schedulerStatus.next_job.account}`
-                  : 'Auto-Scheduler Aktif'
+                  ? `Jadwal Berikutnya: ${schedulerStatus.next_job.item_name} (${schedulerStatus.next_job.scheduled_time}) - ${schedulerStatus.next_job.account}\nKlik untuk melihat detail & membatalkan jadwal`
+                  : 'Klik untuk melihat daftar antrean konten terjadwal'
               }
             >
               <div className="relative flex items-center justify-center">
-                <CalendarClock className="w-3.5 h-3.5 text-emerald-400" />
+                <CalendarClock className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
                 <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
               </div>
-              <span className="text-[11px] font-semibold text-emerald-300 font-mono">
+              <span className="text-[11px] font-semibold text-emerald-300 font-mono group-hover:text-emerald-200">
                 {schedulerStatus.total_scheduled_pending} Terjadwal
               </span>
-            </div>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onOpenScheduledQueue && onOpenScheduledQueue()}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-zinc-800 hover:border-zinc-700 text-xs shadow-xs transition cursor-pointer group text-zinc-400 hover:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+              title="Klik untuk melihat antrean jadwal upload"
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-zinc-500 group-hover:text-zinc-300 transition" />
+              <span className="text-[11px] font-mono font-medium text-zinc-400 group-hover:text-zinc-200">
+                0 Terjadwal
+              </span>
+            </button>
           )}
 
           {/* Bespoke Pro Account Switcher Popover */}

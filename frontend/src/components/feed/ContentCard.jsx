@@ -11,6 +11,7 @@ import {
   ChevronDown,
   GripVertical,
   ShoppingBag,
+  Sparkles,
 } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../utils/constants';
 import {
@@ -24,6 +25,7 @@ function ContentCard({
   index = 0,
   totalItems = 1,
   isSelected,
+  isGeneratingCaption = false,
   onSelect,
   onDeleteClick,
   onToast,
@@ -207,6 +209,17 @@ function ContentCard({
                   <span>Keranjang Kuning</span>
                 </span>
               )}
+
+              {/* AI Generating Caption Badge */}
+              {isGeneratingCaption && (
+                <span
+                  title="AI sedang menyusun caption & rekomendasi hashtag di latar belakang"
+                  className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-emerald-400 flex items-center gap-1 shadow-xs animate-pulse"
+                >
+                  <Sparkles className="w-2.5 h-2.5 text-emerald-400 animate-spin" />
+                  <span>AI Caption...</span>
+                </span>
+              )}
             </div>
 
             {/* Platform-Specific Status Badge */}
@@ -248,7 +261,16 @@ function ContentCard({
 
           {/* Caption Snippet */}
           <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-relaxed">
-            {item.caption || <span className="italic text-zinc-600">Belum ada caption...</span>}
+            {isGeneratingCaption ? (
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium animate-pulse">
+                <Sparkles className="w-3 h-3 text-emerald-400 animate-spin flex-shrink-0" />
+                <span>Sedang membuat caption dengan AI...</span>
+              </span>
+            ) : item.caption ? (
+              item.caption
+            ) : (
+              <span className="italic text-zinc-600">Belum ada caption...</span>
+            )}
           </p>
         </div>
 

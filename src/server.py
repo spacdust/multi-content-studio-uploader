@@ -87,11 +87,12 @@ class SaveCaptionRequest(BaseModel):
     tiktok_mentions: Optional[str] = ""
     instagram_mentions: Optional[str] = ""
     as_draft: Optional[bool] = False
-    sound_mode: Optional[str] = "favorite"
+    sound_mode: Optional[str] = "none"
     sound_query: Optional[str] = ""
     sound_db: Optional[str] = "-7"
     scheduled_time: Optional[str] = None
     tiktok_product: Optional[Dict[str, Any]] = None
+    platforms: Optional[List[str]] = None
 
 class UploadItemRequest(BaseModel):
     account: str
@@ -107,6 +108,10 @@ class DeleteItemRequest(BaseModel):
     item_name: str
     item_key: Optional[str] = None
 
+class ResetStatusRequest(BaseModel):
+    account: str
+    item_key: str
+
 class ReorderQueueRequest(BaseModel):
     account: str
     ordered_keys: List[str]
@@ -116,10 +121,13 @@ class BatchScheduleItem(BaseModel):
     date: str
     item_name: str
     scheduled_time: Optional[str] = None
+    platforms: Optional[List[str]] = None
+    account: Optional[str] = None
 
 class BatchScheduleRequest(BaseModel):
     account: str
     items: List[BatchScheduleItem]
+    platforms: Optional[List[str]] = None
 
 class BatchClearScheduleRequest(BaseModel):
     account: str
@@ -720,6 +728,10 @@ def get_content(account: Optional[str] = None):
 
         first_media_url = slide_urls[0] if slide_urls else f"/api/content/media/{item['account']}/{item['category']}/{item['date']}/{item['name']}"
 
+        task_key = f"{item['account']}:{item['item_key']}"
+        alt_key = f"{item['account']}:{item['category']}/{item['date']}/{item['name']}"
+        is_generating = (task_key in _active_auto_caption_tasks) or (alt_key in _active_auto_caption_tasks)
+
         serialized.append({
             "account": item["account"],
             "category": item["category"],
@@ -728,6 +740,7 @@ def get_content(account: Optional[str] = None):
             "item_key": item["item_key"],
             "path": str(item["path"]),
             "caption": item["caption"],
+            "is_generating_caption": is_generating,
             "meta": item["meta"],
             "uploaded_platforms": item["uploaded_platforms"],
             "uploaded_timestamps": item.get("uploaded_timestamps", {}),
@@ -854,16 +867,17 @@ def save_caption(req: SaveCaptionRequest):
             pass
 
     default_db = "-7" if req.category == "Video" else "0"
+    target_platforms = req.platforms if (req.platforms is not None and isinstance(req.platforms, list)) else meta_data.get("platforms", ["tiktok", "instagram", "facebook"])
     meta_data.update({
         "caption": req.caption,
         "tiktok_mentions": (req.tiktok_mentions or "").strip(),
         "instagram_mentions": (req.instagram_mentions or "").strip(),
-        "sound_mode": req.sound_mode or "favorite",
+        "sound_mode": req.sound_mode or "none",
         "sound_query": req.sound_query if req.sound_query is not None else "",
         "sound_db": req.sound_db if (req.sound_db is not None and req.sound_db != "") else default_db,
         "scheduled_time": req.scheduled_time,
         "tiktok_product": req.tiktok_product if req.tiktok_product is not None else meta_data.get("tiktok_product", {"enabled": False}),
-        "platforms": ["tiktok", "instagram", "facebook"],
+        "platforms": target_platforms,
         "as_draft": False
     })
 
@@ -885,6 +899,16 @@ def delete_content_item(req: DeleteItemRequest):
     if not success:
         raise HTTPException(status_code=404, detail="File atau antrean tidak ditemukan.")
     return {"status": "success", "message": f"Konten '{req.item_name}' berhasil dihapus dari antrean!"}
+
+@app.post("/api/content/reset-status")
+def reset_content_status(req: ResetStatusRequest):
+    """Resets the upload status of a content item back to PENDING."""
+    success = ContentManager.reset_item_status(req.account, req.item_key)
+    return {
+        "status": "success",
+        "message": f"Status upload untuk '{req.item_key}' berhasil di-reset menjadi PENDING!",
+        "reset": success
+    }
 
 @app.post("/api/content/reorder")
 def reorder_content_queue(req: ReorderQueueRequest):
@@ -938,6 +962,11 @@ def batch_schedule_content(req: BatchScheduleRequest):
         
         clean_sched_time = (it.scheduled_time or "").strip() if it.scheduled_time else None
         meta_data["scheduled_time"] = clean_sched_time
+        
+        target_platforms = it.platforms or req.platforms
+        if target_platforms and isinstance(target_platforms, list):
+            meta_data["platforms"] = [p.lower() for p in target_platforms]
+
         meta_json_path.parent.mkdir(parents=True, exist_ok=True)
         with open(meta_json_path, "w", encoding="utf-8") as f:
             json.dump(meta_data, f, indent=2)
@@ -963,17 +992,37 @@ def batch_clear_schedule(req: BatchClearScheduleRequest):
     items_to_clear = req.items or []
     
     if not items_to_clear:
-        scanned = ContentManager.scan_content(req.account)
-        for s in scanned:
-            items_to_clear.append(BatchScheduleItem(
-                category=s["category"],
-                date=s["date"],
-                item_name=s["name"],
-                scheduled_time=None
-            ))
+        if req.account and req.account.lower() == "all":
+            accounts = AccountManager.list_accounts()
+            for acc in accounts:
+                acc_name = acc.get("name") if isinstance(acc, dict) else str(acc)
+                if not acc_name:
+                    continue
+                scanned = ContentManager.scan_content(acc_name)
+                for s in scanned:
+                    if s.get("meta", {}).get("scheduled_time"):
+                        items_to_clear.append(BatchScheduleItem(
+                            account=acc_name,
+                            category=s["category"],
+                            date=s["date"],
+                            item_name=s["name"],
+                            scheduled_time=None
+                        ))
+        else:
+            scanned = ContentManager.scan_content(req.account)
+            for s in scanned:
+                if s.get("meta", {}).get("scheduled_time"):
+                    items_to_clear.append(BatchScheduleItem(
+                        account=req.account,
+                        category=s["category"],
+                        date=s["date"],
+                        item_name=s["name"],
+                        scheduled_time=None
+                    ))
 
     for it in items_to_clear:
-        meta_json_path = _find_item_meta_json(req.account, it.category, it.date, it.item_name)
+        target_account = getattr(it, "account", None) or req.account
+        meta_json_path = _find_item_meta_json(target_account, it.category, it.date, it.item_name)
         if not meta_json_path or not meta_json_path.exists():
             continue
         try:
@@ -993,6 +1042,8 @@ def batch_clear_schedule(req: BatchClearScheduleRequest):
         "message": f"Berhasil menghapus jadwal pada {cleared_count} konten."
     }
 
+_active_auto_caption_tasks: set = set()
+
 def _trigger_background_auto_caption(
     account: str,
     category: str,
@@ -1005,6 +1056,9 @@ def _trigger_background_auto_caption(
     """
     Generates high-quality AI caption in background thread and saves directly to meta.json and caption.txt.
     """
+    task_key = f"{account}:{category}/{date}/{item_name}"
+    _active_auto_caption_tasks.add(task_key)
+
     def worker():
         try:
             time.sleep(0.5)  # Ensure file handles are closed
@@ -1045,6 +1099,8 @@ def _trigger_background_auto_caption(
             console.print(f"[bold green][Auto-Caption][/bold green] Caption AI otomatis berhasil dibuat & disimpan untuk {category} '{item_name}'!")
         except Exception as ex:
             console.print(f"[dim yellow][Auto-Caption Warning] Gagal generate caption otomatis: {ex}[/dim yellow]")
+        finally:
+            _active_auto_caption_tasks.discard(task_key)
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -1081,7 +1137,7 @@ async def upload_content_media(
         meta_data = {
             "caption": "",
             "scheduled_time": clean_sched_time,
-            "sound_mode": "favorite",
+            "sound_mode": "none",
             "sound_query": "",
             "sound_db": "0",
             "platforms": ["instagram", "tiktok", "facebook"],
@@ -1097,6 +1153,9 @@ async def upload_content_media(
             except Exception:
                 pass
 
+        # Purge any stale upload history for this carousel item so it starts fresh as PENDING
+        ContentManager.remove_item_history(account, f"Carousel/{date}/{c_name}")
+
         # Trigger automatic background AI caption generation
         _trigger_background_auto_caption(
             account=account,
@@ -1110,62 +1169,91 @@ async def upload_content_media(
 
         return {
             "status": "success",
-            "message": f"Carousel '{c_name}' dengan {len(saved_files)} slide berhasil disimpan!",
+            "message": f"Carousel '{c_name}' dengan {len(saved_files)} slide berhasil disimpan! Sedang membuat caption dengan AI...",
             "slides": saved_files,
-            "folder_name": c_name
+            "folder_name": c_name,
+            "item_key": f"Carousel/{date}/{c_name}",
+            "is_generating_caption": True
         }
 
-    else: # Video or Poster (Single Upload)
+    else: # Video or Poster (Supports Single or Multiple separate items)
         if not files:
             raise HTTPException(status_code=400, detail="Tidak ada file yang diunggah")
 
-        file = files[0]
-        ext = Path(file.filename).suffix.lower() or (".mp4" if category == "Video" else ".jpg")
-        saved_filename = ContentManager.get_next_item_name(account, category, date, ext=ext)
         target_dir.mkdir(parents=True, exist_ok=True)
-        target_path = target_dir / saved_filename
-
-        with open(target_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-
+        saved_items = []
         default_db = "-7" if category == "Video" else "0"
-        meta_path = target_dir / f"{target_path.stem}.json"
-        meta_data = {
-            "caption": "",
-            "scheduled_time": clean_sched_time,
-            "sound_mode": "favorite",
-            "sound_query": "",
-            "sound_db": default_db,
-            "platforms": ["tiktok", "instagram", "facebook"],
-            "as_draft": False
-        }
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta_data, f, indent=2)
 
-        # Remove any lingering old .txt caption file for this item name
-        txt_path = target_dir / f"{target_path.stem}.txt"
-        if txt_path.exists():
-            try:
-                txt_path.unlink()
-            except Exception:
-                pass
+        for file in files:
+            ext = Path(file.filename).suffix.lower() or (".mp4" if category == "Video" else ".jpg")
+            saved_filename = ContentManager.get_next_item_name(account, category, date, ext=ext)
+            target_path = target_dir / saved_filename
 
-        # Trigger automatic background AI caption generation
-        _trigger_background_auto_caption(
-            account=account,
-            category=category,
-            date=date,
-            item_name=saved_filename,
-            media_path=target_path,
-            target_dir=target_dir,
-            is_carousel=False
-        )
+            with open(target_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+
+            meta_path = target_dir / f"{target_path.stem}.json"
+            meta_data = {
+                "caption": "",
+                "scheduled_time": clean_sched_time,
+                "sound_mode": "none",
+                "sound_query": "",
+                "sound_db": default_db,
+                "platforms": ["tiktok", "instagram", "facebook"],
+                "as_draft": False
+            }
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta_data, f, indent=2)
+
+            # Remove any lingering old .txt caption file for this item name
+            txt_path = target_dir / f"{target_path.stem}.txt"
+            if txt_path.exists():
+                try:
+                    txt_path.unlink()
+                except Exception:
+                    pass
+
+            # Purge any stale upload history for this item so it starts fresh as PENDING
+            ContentManager.remove_item_history(account, f"{category}/{date}/{saved_filename}")
+
+            # Trigger automatic background AI caption generation for each item
+            _trigger_background_auto_caption(
+                account=account,
+                category=category,
+                date=date,
+                item_name=saved_filename,
+                media_path=target_path,
+                target_dir=target_dir,
+                is_carousel=False
+            )
+
+            saved_items.append({
+                "filename": saved_filename,
+                "item_key": f"{category}/{date}/{saved_filename}",
+                "path": str(target_path)
+            })
+
+        first_item = saved_items[0]
+        filenames = [it["filename"] for it in saved_items]
+        item_keys = [it["item_key"] for it in saved_items]
+        total_count = len(saved_items)
+
+        if total_count > 1:
+            msg = f"{total_count} {category} berhasil disimpan sebagai item terpisah! Sedang membuat caption dengan AI..."
+        else:
+            msg = f"Media '{first_item['filename']}' berhasil diunggah! Sedang membuat caption dengan AI..."
 
         return {
             "status": "success",
-            "filename": saved_filename,
-            "path": str(target_path)
+            "message": msg,
+            "filename": first_item["filename"],
+            "item_key": first_item["item_key"],
+            "filenames": filenames,
+            "item_keys": item_keys,
+            "count": total_count,
+            "path": first_item["path"],
+            "is_generating_caption": True
         }
 
 # Backwards compatible alias

@@ -25,6 +25,7 @@ export default function StudioInspector({
   activePlatforms,
   currentAccData,
   handleUploadItem,
+  handleResetStatus,
   showToast,
 }) {
   if (!selectedItem) {
@@ -69,12 +70,14 @@ export default function StudioInspector({
           <button
             type="button"
             onClick={() => handleGenerateCaption(selectedItem)}
-            disabled={generatingCaption === selectedItem.item_key}
+            disabled={generatingCaption === selectedItem.item_key || Boolean(selectedItem.is_generating_caption)}
             title="Generate AI Caption & Hashtags"
-            className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-750 text-emerald-400 border border-zinc-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition shadow-xs disabled:opacity-50"
+            className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-750 text-emerald-400 border border-zinc-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-xs disabled:opacity-50"
           >
-            <Sparkles className={`w-3.5 h-3.5 ${generatingCaption === selectedItem.item_key ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">AI Caption</span>
+            <Sparkles className={`w-3.5 h-3.5 ${(generatingCaption === selectedItem.item_key || Boolean(selectedItem.is_generating_caption)) ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">
+              {(generatingCaption === selectedItem.item_key || Boolean(selectedItem.is_generating_caption)) ? 'Menyusun...' : 'AI Caption'}
+            </span>
           </button>
 
           <button
@@ -102,6 +105,7 @@ export default function StudioInspector({
         currentEdit={currentEdit}
         currentHashtags={currentHashtags}
         setEditedItems={setEditedItems}
+        isGeneratingCaption={generatingCaption === selectedItem.item_key || Boolean(selectedItem.is_generating_caption)}
       />
 
       {/* 4. TikTok Audio / Sound Controller */}
@@ -129,6 +133,7 @@ export default function StudioInspector({
         activePlatforms={activePlatforms}
         currentAccData={currentAccData}
         handleUploadItem={handleUploadItem}
+        handleResetStatus={handleResetStatus}
         showToast={showToast}
       />
     </aside>

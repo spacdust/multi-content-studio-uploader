@@ -8,10 +8,19 @@ Tidak perlu lagi repot login bolak-balik, membuka banyak tab peramban, atau post
 
 ## ✨ Fitur-Fitur Utama
 
+- 🎛️ **Switch Platform Bebas ON/OFF (TikTok, Instagram, Facebook)** *(Baru!)*  
+  Saat melakukan upload terjadwal atau upload massal, Anda memegang kendali penuh mau mempublikasikan ke platform mana saja. Cukup aktifkan/nonaktifkan sakelar switch TikTok, Instagram, atau Facebook sesuai kebutuhan kampanye. Platform yang dimatikan tidak akan dibuka maupun disentuh oleh bot.
+
+- 🔇 **Default Mode Audio "No Sound" untuk TikTok Studio** *(Baru!)*  
+  Setiap media yang baru diunggah kini otomatis disetel ke mode **"No Sound"**. Anda tidak perlu khawatir video diiringi musik acak secara otomatis. Jika ingin menambahkan audio, cukup klik mode *Favorite* atau *Search Sound* di panel Studio Inspector.
+
+- 🎬 **Multi-Video Upload Sekaligus (Pilih 5 Video = 5 Reel Terpisah)** *(Baru!)*  
+  Mengunggah banyak video kini lebih cepat! Anda dapat memilih beberapa file video sekaligus dalam sekali klik, dan sistem otomatis memecahnya menjadi item postingan/Reel terpisah lengkap dengan nomor urut rapi.
+
 - 🚀 **1-Klik Upload ke 3 Platform Sekaligus (Tri-Platform Master)**  
   Konten Anda otomatis dipublikasikan secara berurutan (*sequential*) ke **TikTok Studio**, **Instagram (Reels / Feed / Carousel)**, dan **Facebook Fanspage (Reels / Foto)** tanpa risiko tabrakan sesi.
 
-- 🤖 **Auto-Detect Model AI & Pemilihan Model Fleksibel (Baru!)**  
+- 🤖 **Auto-Detect Model AI & Pemilihan Model Fleksibel**  
   Ingin memakai Gemini, OpenAI, Claude, Groq, Ollama lokal, atau model AI lainnya? Cukup masukkan Base URL & API Key di menu **Pengaturan**, klik tombol **Deteksi Model**, dan seluruh model AI yang tersedia dari endpoint akan langsung terbaca otomatis dalam menu dropdown. Anda juga bisa mengetik nama model kustom secara manual kapan saja.
 
 - ⏰ **Penjadwalan Otomatis & Upload Massal Bertahap (Smart Auto-Scheduler)**  
@@ -20,7 +29,7 @@ Tidak perlu lagi repot login bolak-balik, membuka banyak tab peramban, atau post
 - 🛡️ **Mesin Penjadwalan Tangguh (Anti-Gagal & Zero Platform Drop)**  
   - **Tanpa Platform Tertinggal:** Memastikan seluruh platform yang ditargetkan (TikTok, Instagram, Facebook) terbit tuntas. Jika satu platform baru selesai, bot akan melanjutkan platform yang tersisa tanpa melewatkannya.
   - **Proteksi Anti-Infinite Loop:** Bot tidak akan membuka-buka jendela Chrome terus-menerus jika ada gangguan jaringan atau sesi kedaluwarsa. Sistem menerapkan mekanisme cooldown cerdas dan auto-retry hingga 2x.
-  - **Pencegahan Jadwal Basi:** Jadwal lampau yang sudah lewat lebih dari 24 jam otomatis disaring sehingga indikator jadwal tetap bersih dan akurat.
+  - **Pencegahan Jadwal Basi:** Jadwal lampau yang sudah lewat lebih dari 30 menit otomatis disaring dan disanitasi sehingga indikator jadwal tetap bersih dan akurat (0 false spikes).
 
 - 🛒 **Dukungan Keranjang Kuning (TikTok Shop Showcase)**  
   Ingin menautkan produk jualan ke video TikTok? Aktifkan switch keranjang kuning, cari nama produk dari katalog tokomu, pilih produk yang sesuai, dan beri nama label keranjang kuning kustom (maksimal 30 karakter). Bot akan otomatis mengaitkannya ke video saat dipublikasikan!

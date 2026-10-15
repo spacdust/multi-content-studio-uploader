@@ -57,6 +57,31 @@ class AutoScheduler:
         return None
 
     @classmethod
+    def _clear_item_scheduled_time(cls, account_name: str, item: Dict[str, Any]):
+        """Safely clears scheduled_time in meta.json for an executed or expired item."""
+        try:
+            item_path = item.get("path")
+            if not item_path:
+                return
+            if isinstance(item_path, str):
+                item_path = Path(item_path)
+
+            if item.get("category") == "Carousel":
+                meta_file = item_path / "meta.json"
+            else:
+                meta_file = item_path.with_suffix(".json")
+
+            if meta_file.exists():
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("scheduled_time"):
+                    data["scheduled_time"] = None
+                    with open(meta_file, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
+        except Exception as e:
+            console.print(f"[dim yellow][Auto-Scheduler] Gagal membersihkan jadwal item: {e}[/dim yellow]")
+
+    @classmethod
     def get_scheduled_items(cls) -> List[Dict[str, Any]]:
         """Scans all accounts and returns all pending scheduled items sorted by scheduled_time."""
         scheduled_list = []
@@ -106,12 +131,15 @@ class AutoScheduler:
                 item_key = item.get("item_key")
                 diff_seconds = (sched_dt - now).total_seconds()
 
-                # Abaikan jadwal lampau yang sudah lewat lebih dari 24 jam (stale / expired)
-                if diff_seconds < -86400:
+                # Abaikan jadwal lampau (tanggal kemarin/sebelumnya atau keterlambatan > 30 menit).
+                # Jadwal lampau dianggap kedaluwarsa sehingga TIDAK BOLEH dieksekusi otomatis
+                # dan tidak dihitung ke antrean aktif (total_scheduled_pending).
+                if sched_dt.date() < now.date() or diff_seconds < -1800:
+                    cls._clear_item_scheduled_time(acc_name, item)
                     continue
 
                 in_cooldown = now_ts < cls._failed_cooldown.get(item_key, 0)
-                is_due = (0 >= diff_seconds >= -86400) and not in_cooldown
+                is_due = (0 >= diff_seconds >= -1800) and (sched_dt.date() == now.date()) and not in_cooldown
 
                 scheduled_list.append({
                     "account": acc_name,
@@ -185,6 +213,7 @@ class AutoScheduler:
                 )
                 if ok:
                     console.print(f"[bold green][Auto-Scheduler][/bold green] [OK] Publikasi terjadwal '{target_name}' ({target_acc}) BERHASIL!")
+                    cls._clear_item_scheduled_time(target_acc, target_item)
                 else:
                     console.print(f"[bold yellow][Auto-Scheduler][/bold yellow] [!] Publikasi terjadwal '{target_name}' selesai dengan beberapa kendala.")
             except Exception as ex:
@@ -270,6 +299,39 @@ class AutoScheduler:
                 "is_due": first["is_due"]
             }
 
+        upcoming = []
+        for s in scheduled:
+            item_data = s.get("item_data", {})
+            first_media_url = None
+            if s.get("date"):
+                if s["category"] == "Carousel" and item_data.get("slides"):
+                    folder_name = Path(item_data.get("path", "")).name
+                    slides = item_data["slides"]
+                    first_slide = slides[0]
+                    first_slide_name = first_slide.name if hasattr(first_slide, "name") else str(first_slide)
+                    first_media_url = f"/api/content/media/{s['account']}/{s['category']}/{s['date']}/{folder_name}/{first_slide_name}"
+                else:
+                    first_media_url = f"/api/content/media/{s['account']}/{s['category']}/{s['date']}/{s['item_name']}"
+
+            caption = (
+                item_data.get("meta", {}).get("custom_caption")
+                or item_data.get("caption", "")
+            )
+
+            upcoming.append({
+                "account": s["account"],
+                "item_key": s.get("item_key"),
+                "item_name": s["item_name"],
+                "category": s["category"],
+                "date": s.get("date"),
+                "scheduled_time": s["scheduled_time"],
+                "diff_seconds": round(s["diff_seconds"]),
+                "is_due": s["is_due"],
+                "remaining_platforms": s.get("remaining_platforms", []),
+                "media_url": first_media_url,
+                "caption": caption
+            })
+
         return {
             "is_running": is_running,
             "is_active": cls._is_active,
@@ -283,15 +345,5 @@ class AutoScheduler:
             "total_scheduled_pending": len(scheduled),
             "executing_count": len(cls._executing_keys),
             "next_job": next_job,
-            "upcoming_queue": [
-                {
-                    "account": s["account"],
-                    "item_name": s["item_name"],
-                    "category": s["category"],
-                    "scheduled_time": s["scheduled_time"],
-                    "diff_seconds": round(s["diff_seconds"]),
-                    "is_due": s["is_due"]
-                }
-                for s in scheduled[:10]
-            ]
+            "upcoming_queue": upcoming
         }

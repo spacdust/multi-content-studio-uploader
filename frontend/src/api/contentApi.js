@@ -71,6 +71,15 @@ export async function deleteContentItemApi(payload) {
   return await res.json();
 }
 
+export async function resetContentStatusApi(account, itemKey) {
+  const res = await fetch('/api/content/reset-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account, item_key: itemKey }),
+  });
+  return await res.json();
+}
+
 export async function reorderQueueApi(account, orderedKeys) {
   const res = await fetch('/api/content/reorder', {
     method: 'POST',
@@ -80,11 +89,11 @@ export async function reorderQueueApi(account, orderedKeys) {
   return await res.json();
 }
 
-export async function batchScheduleContentApi(account, items) {
+export async function batchScheduleContentApi(account, items, platforms = null) {
   const res = await fetch('/api/content/batch-schedule', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ account, items }),
+    body: JSON.stringify({ account, items, platforms }),
   });
   return await res.json();
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useToast } from './hooks/useToast';
 import { useSettings } from './hooks/useSettings';
 import { useAccounts } from './hooks/useAccounts';
@@ -18,9 +18,11 @@ import SettingsModal from './components/modals/SettingsModal';
 import DeleteConfirmModal from './components/modals/DeleteConfirmModal';
 import PublishProgressModal from './components/modals/PublishProgressModal';
 import MassUploadModal from './components/modals/MassUploadModal';
+import ScheduledQueueModal from './components/modals/ScheduledQueueModal';
 
 export default function App() {
   const { toast, showToast } = useToast();
+  const [showScheduledQueueModal, setShowScheduledQueueModal] = useState(false);
 
   const settingsState = useSettings(showToast);
   const accountsState = useAccounts(showToast);
@@ -53,6 +55,7 @@ export default function App() {
         setTestResult={settingsState.setTestResult}
         showToast={showToast}
         schedulerStatus={contentState.schedulerStatus}
+        onOpenScheduledQueue={() => setShowScheduledQueueModal(true)}
       />
 
       {/* Main Studio 2-Pane Master Detail Layout */}
@@ -82,6 +85,7 @@ export default function App() {
             availableDates={contentState.availableDates}
             setShowAddDateModal={contentState.setShowAddDateModal}
             unuploadedCount={contentState.unuploadedSortedItems.length}
+            totalItemsCount={contentState.sortedItems.length}
             onOpenMassUpload={() => contentState.setShowMassUploadModal(true)}
             batchPublishing={contentState.batchPublishing}
           />
@@ -96,6 +100,7 @@ export default function App() {
             onToast={showToast}
             onMoveItem={contentState.handleMoveItem}
             onDragReorder={contentState.handleDragReorder}
+            generatingCaption={contentState.generatingCaption}
             onDeleteClick={(item) => {
               contentState.setItemToDelete(item);
               contentState.setShowDeleteConfirmModal(true);
@@ -120,6 +125,7 @@ export default function App() {
           activePlatforms={contentState.activePlatforms}
           currentAccData={accountsState.currentAccData}
           handleUploadItem={contentState.handleUploadItem}
+          handleResetStatus={contentState.handleResetStatus}
           showToast={showToast}
         />
       </main>
@@ -153,6 +159,8 @@ export default function App() {
         setSingleMediaFile={contentState.setSingleMediaFile}
         singleMediaPreviewUrl={contentState.singleMediaPreviewUrl}
         setSingleMediaPreviewUrl={contentState.setSingleMediaPreviewUrl}
+        selectedMediaFiles={contentState.selectedMediaFiles}
+        setSelectedMediaFiles={contentState.setSelectedMediaFiles}
         carouselSlides={contentState.carouselSlides}
         setCarouselSlides={contentState.setCarouselSlides}
         uploadDate={contentState.uploadDate}
@@ -222,6 +230,29 @@ export default function App() {
         onClearSchedule={contentState.handleBatchClearSchedule}
         isPublishDisabled={contentState.isPublishDisabled}
         accountName={accountsState.selectedAccount}
+      />
+
+      {/* Scheduled Upload Queue & Management Modal */}
+      <ScheduledQueueModal
+        isOpen={showScheduledQueueModal}
+        onClose={() => setShowScheduledQueueModal(false)}
+        schedulerStatus={contentState.schedulerStatus}
+        accounts={accountsState.accounts}
+        selectedAccount={accountsState.selectedAccount}
+        onClearSingleSchedule={async (item) => {
+          const acc = item.account || accountsState.selectedAccount;
+          await contentState.handleBatchClearSchedule([item], acc);
+        }}
+        onClearAllSchedule={async (targetAccount) => {
+          await contentState.handleBatchClearSchedule(null, targetAccount);
+        }}
+        onRefresh={async () => {
+          await contentState.refreshSchedulerStatus();
+          if (accountsState.selectedAccount) {
+            await contentState.fetchContent(accountsState.selectedAccount);
+          }
+        }}
+        showToast={showToast}
       />
     </div>
   );

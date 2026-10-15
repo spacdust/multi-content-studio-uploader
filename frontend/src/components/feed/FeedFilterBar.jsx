@@ -13,9 +13,12 @@ export default function FeedFilterBar({
   setSortBy,
   availableDates,
   unuploadedCount = 0,
+  totalItemsCount = 0,
   onOpenMassUpload,
   batchPublishing = false,
 }) {
+  const effectiveCount = unuploadedCount > 0 ? unuploadedCount : totalItemsCount;
+  const isButtonDisabled = (totalItemsCount === 0 && unuploadedCount === 0) || batchPublishing;
   const todayStr = getLocalTodayDate();
   const datePickerRef = useRef(null);
 
@@ -148,23 +151,25 @@ export default function FeedFilterBar({
         <button
           type="button"
           onClick={onOpenMassUpload}
-          disabled={unuploadedCount === 0 || batchPublishing}
+          disabled={isButtonDisabled}
           className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-sm select-none ${
-            unuploadedCount > 0 && !batchPublishing
+            !isButtonDisabled
               ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white cursor-pointer active:scale-95 shadow-emerald-950/50'
               : 'bg-zinc-900 border border-zinc-800 text-zinc-500 cursor-not-allowed opacity-60'
           }`}
           title={
-            unuploadedCount > 0
-              ? `Upload massal ${unuploadedCount} media pending berurutan dari bawah ke atas`
-              : 'Semua media pada filter ini sudah terupload'
+            batchPublishing
+              ? 'Sedang memproses upload massal...'
+              : !isButtonDisabled
+              ? `Upload massal ${effectiveCount} media berurutan dari bawah ke atas`
+              : 'Tidak ada media pada filter ini'
           }
         >
-          <Zap className={`w-3.5 h-3.5 ${unuploadedCount > 0 && !batchPublishing ? 'text-amber-300 fill-amber-300' : 'text-zinc-500'}`} />
+          <Zap className={`w-3.5 h-3.5 ${!isButtonDisabled ? 'text-amber-300 fill-amber-300' : 'text-zinc-500'}`} />
           <span>Upload Massal</span>
-          {unuploadedCount > 0 && (
+          {effectiveCount > 0 && (
             <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-700/60 font-extrabold">
-              {unuploadedCount}
+              {effectiveCount}
             </span>
           )}
         </button>
